@@ -4,26 +4,26 @@ import (
 	"time"
 )
 
-// Model IDs for Replicate models
+// Model IDs for Replicate models - using deployment endpoints (no version hash)
 const (
-	// Generation models
-	ModelFluxSchnell = "black-forest-labs/flux-schnell:5599ed30703defd1d160a25a63321b4dec97101d98b4674bcc56e41f62f35637"
-	ModelFluxPro     = "black-forest-labs/flux-pro"
-	ModelFluxDev     = "black-forest-labs/flux-dev"
-	ModelSeedream3   = "bytedance/seedream-3"
-	ModelSDXL        = "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b"
-	ModelIdeogramTurbo = "ideogram-ai/ideogram-v3-turbo"
-	ModelRecraft     = "recraft-ai/recraft-v3-svg"
+	// Generation models - use deployment endpoints without version
+	ModelFluxSchnell = "black-forest-labs/flux-schnell"  // Fast generation (default)
+	ModelFluxPro     = "black-forest-labs/flux-pro"      // High quality
+	ModelFluxDev     = "black-forest-labs/flux-dev"      // Development version
+	ModelSeedream3   = "bytedance/seedream-3"            // High quality
+	ModelSDXL        = "stability-ai/stable-diffusion-xl-base-1.0"  // Stable Diffusion XL
+	ModelIdeogramTurbo = "ideogram-ai/ideogram-v3-turbo" // Text in images
+	ModelRecraft     = "recraft-ai/recraft-v3-svg"       // SVG generation
 	
 	// Enhancement models
-	ModelGFPGAN      = "tencentarc/gfpgan:0fbacf7afc6c144e5be9767cff80f25aff23e52b0708f17e20f9879b2f21516c"
-	ModelCodeFormer  = "sczhou/codeformer:7de2ea26c616d5bf2245ad0d5e24f0ff9a6204578a5c876db53142edd9d2cd56"
-	ModelRealESRGAN  = "nightmareai/real-esrgan:f121d640bd286e1fdc67f9799164c1d5be36ff74576ee11c803ae5b665dd46aa"
+	ModelGFPGAN      = "tencentarc/gfpgan"        // Face restoration
+	ModelCodeFormer  = "sczhou/codeformer"        // Face enhancement
+	ModelRealESRGAN  = "nightmareai/real-esrgan"  // Image upscaling
 	
 	// Editing models
-	ModelRemoveBG    = "lucataco/remove-bg:95fcc2a26d3899cd6c2691c900465aaeff466285a65c14638cc5f36f34befaf1"
-	ModelInpainting  = "stability-ai/stable-diffusion-inpainting"
-	ModelOldPhoto    = "microsoft/bringing-old-photos-back-to-life"
+	ModelRemoveBG    = "lucataco/remove-bg"                       // Background removal
+	ModelInpainting  = "stability-ai/stable-diffusion-inpainting" // Image editing
+	ModelOldPhoto    = "microsoft/bringing-old-photos-back-to-life" // Photo restoration
 )
 
 // Prediction statuses from Replicate

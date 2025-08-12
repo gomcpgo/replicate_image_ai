@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gomcpgo/replicate_image_ai/pkg/types"
@@ -34,17 +36,45 @@ func NewReplicateClient(apiToken string) *ReplicateClient {
 
 // CreatePrediction creates a new prediction on Replicate
 func (c *ReplicateClient) CreatePrediction(ctx context.Context, modelVersion string, input map[string]interface{}) (*types.ReplicatePredictionResponse, error) {
-	req := types.ReplicatePredictionRequest{
-		Version: modelVersion,
-		Input:   input,
+	// Use deployment endpoint for models without version hash
+	var url string
+	var body []byte
+	var err error
+	
+	// Check if modelVersion contains a version hash (has colon)
+	if strings.Contains(modelVersion, ":") {
+		// Use version endpoint for specific versions
+		req := types.ReplicatePredictionRequest{
+			Version: modelVersion,
+			Input:   input,
+		}
+		body, err = json.Marshal(req)
+		url = fmt.Sprintf("%s/predictions", replicateAPIURL)
+	} else {
+		// Use deployment endpoint for latest version
+		reqBody := map[string]interface{}{
+			"input": input,
+		}
+		body, err = json.Marshal(reqBody)
+		url = fmt.Sprintf("%s/models/%s/predictions", replicateAPIURL, modelVersion)
 	}
-
-	body, err := json.Marshal(req)
+	
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
+	
+	// Log the request details (with masked token for security)
+	log.Printf("DEBUG: Creating prediction")
+	log.Printf("  URL: %s", url)
+	log.Printf("  Model: %s", modelVersion)
+	log.Printf("  Request Body: %s", string(body))
+	if len(c.apiToken) > 10 {
+		log.Printf("  Auth Token: %.10s... (length: %d)", c.apiToken, len(c.apiToken))
+	} else {
+		log.Printf("  Auth Token: [TOO SHORT - %d chars]", len(c.apiToken))
+	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/predictions", replicateAPIURL), bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -61,6 +91,22 @@ func (c *ReplicateClient) CreatePrediction(ctx context.Context, modelVersion str
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Log the response
+	log.Printf("DEBUG: Response Status: %d", resp.StatusCode)
+	log.Printf("DEBUG: Response Body: %s", string(respBody))
+
+	// Handle specific error codes
+	if resp.StatusCode == http.StatusPaymentRequired {
+		// 402 - Payment Required
+		var errorResp map[string]interface{}
+		if err := json.Unmarshal(respBody, &errorResp); err == nil {
+			if detail, ok := errorResp["detail"].(string); ok {
+				return nil, fmt.Errorf("billing issue: %s", detail)
+			}
+		}
+		return nil, fmt.Errorf("billing issue (status 402): %s", string(respBody))
 	}
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {

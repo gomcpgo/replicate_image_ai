@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gomcpgo/mcp/pkg/handler"
@@ -235,13 +236,18 @@ func (s *ReplicateImageMCPServer) CallTool(ctx context.Context, req *protocol.Ca
 
 // generateImage handles the generate_image tool
 func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[string]interface{}) (string, error) {
+	// Log incoming parameters
+	log.Printf("\n=== DEBUG: generateImage called ===")
+	log.Printf("Incoming params: %+v", params)
+
 	// Parse parameters
 	prompt, ok := params["prompt"].(string)
 	if !ok || prompt == "" {
 		return "", fmt.Errorf("prompt parameter is required")
 	}
+	log.Printf("Prompt: %s", prompt)
 
-	// Get model selection
+	// Get model selection - default to flux-schnell which works reliably
 	model := "flux-schnell"
 	if m, ok := params["model"].(string); ok && m != "" {
 		model = m
@@ -263,40 +269,56 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 	case "ideogram-turbo":
 		modelID = types.ModelIdeogramTurbo
 	default:
-		modelID = types.ModelFluxSchnell
+		modelID = types.ModelFluxSchnell  // Default to flux-schnell
 	}
 
-	// Build input parameters
+	log.Printf("Model selected: %s", model)
+	log.Printf("Model ID: %s", modelID)
+
+	// Build input parameters - simplified for better compatibility
 	input := map[string]interface{}{
 		"prompt": prompt,
 	}
 
-	// Add optional parameters
+	// Add dimensions
 	if width, ok := params["width"].(float64); ok {
 		input["width"] = int(width)
 	} else {
-		input["width"] = 1024
+		input["width"] = 768  // Use 768 as safer default
 	}
 
 	if height, ok := params["height"].(float64); ok {
 		input["height"] = int(height)
 	} else {
-		input["height"] = 1024
+		input["height"] = 768  // Use 768 as safer default
 	}
 
+	// Add optional parameters that most models support
 	if seed, ok := params["seed"].(float64); ok {
 		input["seed"] = int(seed)
 	}
 
-	if guidanceScale, ok := params["guidance_scale"].(float64); ok {
-		input["guidance_scale"] = guidanceScale
-	} else {
-		input["guidance_scale"] = 7.5
+	// SDXL and most models use these parameters
+	if model == "sdxl" || model == "seedream-3" {
+		if guidanceScale, ok := params["guidance_scale"].(float64); ok {
+			input["guidance_scale"] = guidanceScale
+		} else {
+			input["guidance_scale"] = 7.5
+		}
+
+		if negativePrompt, ok := params["negative_prompt"].(string); ok && negativePrompt != "" {
+			input["negative_prompt"] = negativePrompt
+		}
+		
+		// SDXL specific
+		input["num_inference_steps"] = 25  // Good balance for SDXL
+	} else if strings.HasPrefix(model, "flux") {
+		// Flux models have simpler parameters
+		input["num_inference_steps"] = 4  // Flux schnell default
+		input["output_format"] = "webp"
 	}
 
-	if negativePrompt, ok := params["negative_prompt"].(string); ok && negativePrompt != "" {
-		input["negative_prompt"] = negativePrompt
-	}
+	log.Printf("Final input parameters: %+v", input)
 
 	// Get filename if provided
 	filename, _ := params["filename"].(string)
@@ -309,13 +331,23 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 
 	// Create prediction
 	startTime := time.Now()
+	log.Printf("Creating prediction with Replicate API...")
 	prediction, err := s.client.CreatePrediction(ctx, modelID, input)
 	if err != nil {
+		log.Printf("ERROR: Failed to create prediction: %v", err)
 		return "", fmt.Errorf("failed to create prediction: %w", err)
 	}
+	log.Printf("Prediction created successfully: ID = %s", prediction.ID)
 
 	// Wait for completion (up to 30 seconds)
+	log.Printf("Waiting for completion (timeout: %v)...", s.config.OperationTimeout)
 	result, waitErr := s.client.WaitForCompletion(ctx, prediction.ID, s.config.OperationTimeout)
+	if waitErr != nil {
+		log.Printf("Wait error: %v", waitErr)
+	}
+	if result != nil {
+		log.Printf("Result status: %s", result.Status)
+	}
 	
 	// Check if completed successfully
 	if waitErr == nil && result.Status == types.StatusSucceeded {
