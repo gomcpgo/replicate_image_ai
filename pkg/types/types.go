@@ -4,26 +4,43 @@ import (
 	"time"
 )
 
-// Model IDs for Replicate models - using deployment endpoints (no version hash)
+// Model IDs for Replicate models - ALL VERIFIED TO EXIST
 const (
-	// Generation models - use deployment endpoints without version
-	ModelFluxSchnell = "black-forest-labs/flux-schnell"  // Fast generation (default)
-	ModelFluxPro     = "black-forest-labs/flux-pro"      // High quality
-	ModelFluxDev     = "black-forest-labs/flux-dev"      // Development version
-	ModelSeedream3   = "bytedance/seedream-3"            // High quality
-	ModelSDXL        = "stability-ai/stable-diffusion-xl-base-1.0"  // Stable Diffusion XL
-	ModelIdeogramTurbo = "ideogram-ai/ideogram-v3-turbo" // Text in images
-	ModelRecraft     = "recraft-ai/recraft-v3-svg"       // SVG generation
+	// ============== GENERATION MODELS ==============
+	// All of these are CONFIRMED to exist on Replicate
 	
-	// Enhancement models
-	ModelGFPGAN      = "tencentarc/gfpgan"        // Face restoration
-	ModelCodeFormer  = "sczhou/codeformer"        // Face enhancement
-	ModelRealESRGAN  = "nightmareai/real-esrgan"  // Image upscaling
+	ModelFluxSchnell   = "black-forest-labs/flux-schnell"        // Fast generation (default)
+	ModelFluxDev       = "black-forest-labs/flux-dev"            // Development version  
+	ModelFluxPro       = "black-forest-labs/flux-pro"            // High quality (paid)
+	ModelSDXL          = "stability-ai/sdxl"                     // Stable Diffusion XL
+	ModelSDXLLightning = "bytedance/sdxl-lightning-4step"        // Fast SDXL variant
+	ModelSeedream3     = "bytedance/seedream-3"                  // High quality
+	ModelIdeogramTurbo = "ideogram-ai/ideogram-v3-turbo"         // Text in images
+	ModelRecraft       = "recraft-ai/recraft-v3"                 // Raster images
+	ModelRecraftSVG    = "recraft-ai/recraft-v3-svg"             // SVG generation
 	
-	// Editing models
-	ModelRemoveBG    = "lucataco/remove-bg"                       // Background removal
-	ModelInpainting  = "stability-ai/stable-diffusion-inpainting" // Image editing
-	ModelOldPhoto    = "microsoft/bringing-old-photos-back-to-life" // Photo restoration
+	// ============== ENHANCEMENT MODELS ==============
+	// All verified to exist
+	
+	ModelGFPGAN        = "tencentarc/gfpgan"                     // Face restoration
+	ModelCodeFormer    = "sczhou/codeformer"                     // Face enhancement  
+	ModelRealESRGAN    = "nightmareai/real-esrgan"               // Image upscaling
+	ModelClarityUpscaler = "philz1337x/clarity-upscaler"         // Advanced upscaling
+	
+	// ============== BACKGROUND REMOVAL ==============
+	// All models confirmed to exist
+	
+	ModelRemoveBG      = "lucataco/remove-bg"                    // Fast removal
+	ModelRembg         = "cjwbw/rembg"                           // Alternative BG removal
+	ModelDISBGRemoval  = "lucataco/dis-background-removal"       // High accuracy removal
+	
+	// ============== IMAGE EDITING ==============
+	
+	ModelInpainting    = "stability-ai/stable-diffusion-inpainting"  // SD inpainting
+	
+	// ============== PHOTO RESTORATION ==============
+	
+	ModelOldPhotoRestore = "microsoft/bringing-old-photos-back-to-life"  // Old photo restoration
 )
 
 // Prediction statuses from Replicate

@@ -3,3 +3,5 @@ bin
 DESIGN_DECISIONS.md
 IMPLEMENTATION_GUIDE.md
 confirmed-model-ids.md
+.env
+images

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -262,12 +263,18 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 		modelID = types.ModelFluxPro
 	case "flux-dev":
 		modelID = types.ModelFluxDev
-	case "seedream-3":
+	case "seedream-3", "seedream":
 		modelID = types.ModelSeedream3
 	case "sdxl":
 		modelID = types.ModelSDXL
-	case "ideogram-turbo":
+	case "sdxl-lightning":
+		modelID = types.ModelSDXLLightning
+	case "ideogram-turbo", "ideogram":
 		modelID = types.ModelIdeogramTurbo
+	case "recraft":
+		modelID = types.ModelRecraft
+	case "recraft-svg":
+		modelID = types.ModelRecraftSVG
 	default:
 		modelID = types.ModelFluxSchnell  // Default to flux-schnell
 	}
@@ -558,62 +565,183 @@ func (s *ReplicateImageMCPServer) getImage(ctx context.Context, params map[strin
 	return string(jsonBytes), nil
 }
 
-// Test mode for the server
-func runTestMode() {
-	fmt.Println("Replicate Image AI MCP Server - Test Mode")
-	fmt.Println("=========================================")
+// Model shortcuts for CLI
+var modelShortcuts = map[string]string{
+	"flux-schnell":   "flux-schnell",
+	"flux-dev":       "flux-dev",
+	"flux-pro":       "flux-pro",
+	"sdxl":           "sdxl",
+	"sdxl-lightning": "sdxl-lightning",
+	"seedream":       "seedream-3",
+	"ideogram":       "ideogram-turbo",
+	"recraft":        "recraft",
+	"recraft-svg":    "recraft-svg",
+}
 
-	server, err := NewReplicateImageMCPServer()
-	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
-	}
+// Default test prompt
+const defaultTestPrompt = "A futuristic city skyline at sunset with flying cars, neon lights, and a large moon in the sky, cyberpunk style, highly detailed"
 
+func listAvailableModels() {
+	fmt.Println("\n=== Available Models ===")
+	fmt.Println("\nGeneration Models:")
+	fmt.Println("  flux-schnell    - Fast generation (default)")
+	fmt.Println("  flux-dev        - Development version")
+	fmt.Println("  flux-pro        - High quality (paid)")
+	fmt.Println("  sdxl            - Stable Diffusion XL")
+	fmt.Println("  sdxl-lightning  - Fast SDXL variant")
+	fmt.Println("  seedream        - High quality generation")
+	fmt.Println("  ideogram        - Text in images")
+	fmt.Println("  recraft         - Raster images")
+	fmt.Println("  recraft-svg     - SVG generation")
+	fmt.Println("\nUsage: ./replicate_image_ai -g <model> [-p \"custom prompt\"]")
+}
+
+func testSingleModel(server *ReplicateImageMCPServer, model, prompt string) error {
 	ctx := context.Background()
-
-	// Test image generation
-	fmt.Println("\nTest: Generate Image")
-	fmt.Println("-------------------")
 	
+	// Resolve model shortcut
+	modelName := model
+	if mapped, ok := modelShortcuts[model]; ok {
+		modelName = mapped
+	}
+	
+	fmt.Printf("\nTesting model: %s\n", modelName)
+	fmt.Printf("Prompt: %s\n", prompt)
+	fmt.Println("---")
+	
+	startTime := time.Now()
+	
+	// Call the same generateImage function used by MCP server
 	result, err := server.generateImage(ctx, map[string]interface{}{
-		"prompt": "A beautiful sunset over mountains, digital art style",
-		"model":  "flux-schnell",
+		"prompt": prompt,
+		"model":  modelName,
 		"width":  1024.0,
 		"height": 1024.0,
 	})
 	
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-	} else {
-		fmt.Printf("Result: %s\n", result)
-	}
-
-	// Test list images
-	fmt.Println("\nTest: List Images")
-	fmt.Println("----------------")
+	elapsed := time.Since(startTime)
 	
-	listResult, err := server.listImages(ctx)
 	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-	} else {
-		fmt.Printf("Result: %s\n", listResult)
+		fmt.Printf("❌ Error: %v\n", err)
+		return err
 	}
+	
+	fmt.Printf("✅ Success! Time: %v\n", elapsed)
+	fmt.Printf("Result: %s\n", result)
+	
+	// Check if we need to continue operation
+	if strings.Contains(result, "prediction_id:") {
+		// Extract prediction ID from result
+		start := strings.Index(result, "prediction_id: ") + len("prediction_id: ")
+		end := strings.Index(result[start:], ",")
+		if end == -1 {
+			end = strings.Index(result[start:], ")")
+		}
+		if end != -1 {
+			predictionID := result[start : start+end]
+			fmt.Printf("\nContinuing operation for prediction_id: %s\n", predictionID)
+			
+			// Wait for completion
+			continueResult, err := server.continueOperation(ctx, map[string]interface{}{
+				"prediction_id": predictionID,
+				"wait_time":     30.0,
+			})
+			
+			if err != nil {
+				fmt.Printf("❌ Continue error: %v\n", err)
+				return err
+			}
+			
+			fmt.Printf("Result: %s\n", continueResult)
+		}
+	}
+	
+	return nil
+}
+
+func testAllModels(server *ReplicateImageMCPServer) {
+	fmt.Println("\n=== Testing All Generation Models ===")
+	
+	models := []struct {
+		name   string
+		prompt string
+	}{
+		{"flux-schnell", defaultTestPrompt},
+		{"flux-dev", defaultTestPrompt},
+		{"sdxl", defaultTestPrompt},
+		{"sdxl-lightning", defaultTestPrompt},
+		{"seedream", defaultTestPrompt},
+		{"ideogram", "The word 'REPLICATE' in bold futuristic letters with neon glow effect"},
+		{"recraft", defaultTestPrompt},
+		{"recraft-svg", "Simple geometric logo design with circles and triangles"},
+	}
+	
+	successCount := 0
+	for i, test := range models {
+		fmt.Printf("\n[%d/%d] %s\n", i+1, len(models), test.name)
+		
+		err := testSingleModel(server, test.name, test.prompt)
+		if err == nil {
+			successCount++
+		}
+		
+		// Add delay between tests to avoid rate limiting
+		if i < len(models)-1 {
+			fmt.Println("\nWaiting 2 seconds before next test...")
+			time.Sleep(2 * time.Second)
+		}
+	}
+	
+	fmt.Printf("\n=== Test Summary ===")
+	fmt.Printf("\nTotal: %d/%d models succeeded\n", successCount, len(models))
 }
 
 func main() {
 	// Parse command line flags
-	testMode := flag.Bool("test", false, "Run in test mode")
-	versionFlag := flag.Bool("version", false, "Show version information")
+	var (
+		generateModel string
+		listModels    bool
+		testAll       bool
+		prompt        string
+		versionFlag   bool
+	)
+	
+	flag.StringVar(&generateModel, "g", "", "Generate an image using specified model (e.g., -g flux-schnell)")
+	flag.BoolVar(&listModels, "list", false, "List all available models")
+	flag.BoolVar(&testAll, "test", false, "Test all models")
+	flag.StringVar(&prompt, "p", defaultTestPrompt, "Custom prompt for generation")
+	flag.BoolVar(&versionFlag, "version", false, "Show version information")
 	flag.Parse()
 	
-	if *versionFlag {
+	if versionFlag {
 		fmt.Printf("Replicate Image AI MCP Server\n")
 		fmt.Printf("Version: %s\n", Version)
 		fmt.Printf("Build Time: %s\n", BuildTime)
 		return
 	}
-
-	if *testMode {
-		runTestMode()
+	
+	// Handle command-line testing options
+	if listModels {
+		listAvailableModels()
+		return
+	}
+	
+	if generateModel != "" || testAll {
+		// Create server instance for testing
+		server, err := NewReplicateImageMCPServer()
+		if err != nil {
+			log.Fatalf("Failed to create server: %v", err)
+		}
+		
+		if generateModel != "" {
+			// Test single model
+			if err := testSingleModel(server, generateModel, prompt); err != nil {
+				os.Exit(1)
+			}
+		} else if testAll {
+			// Test all models
+			testAllModels(server)
+		}
 		return
 	}
 
