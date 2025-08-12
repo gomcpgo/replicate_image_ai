@@ -20,27 +20,27 @@ const (
 	ModelRecraftSVG    = "recraft-ai/recraft-v3-svg"             // SVG generation
 	
 	// ============== ENHANCEMENT MODELS ==============
-	// All verified to exist
+	// All with version hashes for reliability
 	
-	ModelGFPGAN        = "tencentarc/gfpgan"                     // Face restoration
-	ModelCodeFormer    = "sczhou/codeformer"                     // Face enhancement  
-	ModelRealESRGAN    = "nightmareai/real-esrgan"               // Image upscaling
-	ModelClarityUpscaler = "philz1337x/clarity-upscaler"         // Advanced upscaling
+	ModelGFPGAN        = "tencentarc/gfpgan:297a243ce8643961d52f745f9b6c8c1bd96850a51c92be5f43628a0d3e08321a"                     // Face restoration
+	ModelCodeFormer    = "sczhou/codeformer:cc4956dd26fa5a7185d5660cc9100fab1b8070a1d1654a8bb5eb6d443b020bb2"                     // Face enhancement  
+	ModelRealESRGAN    = "nightmareai/real-esrgan:f121d640bd286e1fdc67f9799164c1d5be36ff74576ee11c803ae5b665dd46aa"               // Image upscaling
+	ModelClarityUpscaler = "philz1337x/clarity-upscaler:dfad41707589d68ecdccd1dfa600d55a208f9310748e44bfe35b4a6291453d5e"         // Advanced upscaling
 	
 	// ============== BACKGROUND REMOVAL ==============
-	// All models confirmed to exist
+	// All with version hashes for reliability
 	
-	ModelRemoveBG      = "lucataco/remove-bg"                    // Fast removal
-	ModelRembg         = "cjwbw/rembg"                           // Alternative BG removal
-	ModelDISBGRemoval  = "lucataco/dis-background-removal"       // High accuracy removal
+	ModelRemoveBG      = "lucataco/remove-bg:95fcc2a26d3899cd6c2691c900465aaeff466285a65c14638cc5f36f34befaf1"                    // Fast removal
+	ModelRembg         = "cjwbw/rembg:fb8af171cfa1616ddcf1242c093f9c46bcada5ad4cf6f2fbe8b81b330ec5c003"                           // Alternative BG removal
+	ModelDISBGRemoval  = "lucataco/dis-background-removal:5b67a0da2b417b71066754fa8550d668a12edccfe3f32de062f7e20ac0b5d55e"       // High accuracy removal
 	
 	// ============== IMAGE EDITING ==============
 	
-	ModelInpainting    = "stability-ai/stable-diffusion-inpainting"  // SD inpainting
+	ModelInpainting    = "stability-ai/stable-diffusion-inpainting:95b7223104132402a9ae91cc677285bc5eb997834bd2349fa486f53910fd68b3"  // SD inpainting
 	
 	// ============== PHOTO RESTORATION ==============
 	
-	ModelOldPhotoRestore = "microsoft/bringing-old-photos-back-to-life"  // Old photo restoration
+	ModelOldPhotoRestore = "microsoft/bringing-old-photos-back-to-life:c75db81db6cbd809d93cc3b7e7a088a351a3349c9fa02b6d393e35e0d51ba799"  // Old photo restoration
 )
 
 // Prediction statuses from Replicate

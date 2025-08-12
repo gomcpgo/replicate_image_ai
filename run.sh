@@ -10,7 +10,7 @@ fi
 case "$1" in
     "build")
         echo "Building Replicate Image AI MCP server..."
-        go build -o bin/replicate_image_ai cmd/main.go
+        go build -o bin/replicate_image_ai cmd/main.go cmd/enhancements.go
         echo "Build complete: bin/replicate_image_ai"
         ;;
     
@@ -42,14 +42,14 @@ case "$1" in
         model="$2"
         prompt="${3:-}"
         if [ -n "$prompt" ]; then
-            go run cmd/main.go -g "$model" -p "$prompt"
+            go run cmd/main.go cmd/enhancements.go -g "$model" -p "$prompt"
         else
-            go run cmd/main.go -g "$model"
+            go run cmd/main.go cmd/enhancements.go -g "$model"
         fi
         ;;
     
     "list-models")
-        go run cmd/main.go -list
+        go run cmd/main.go cmd/enhancements.go -list
         ;;
     
     "test-all")
@@ -57,7 +57,7 @@ case "$1" in
             echo "Error: REPLICATE_API_TOKEN environment variable is required"
             exit 1
         fi
-        go run cmd/main.go -test
+        go run cmd/main.go cmd/enhancements.go -test
         ;;
     
     "test-id")
@@ -71,12 +71,58 @@ case "$1" in
             echo "Error: REPLICATE_API_TOKEN environment variable is required"
             exit 1
         fi
-        go run cmd/main.go -test-id "$2"
+        go run cmd/main.go cmd/enhancements.go -test-id "$2"
+        ;;
+    
+    "enhance")
+        # Test enhancement functions
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: ./run.sh enhance <tool> <image_path> [model/mask] [output_file] [prompt]"
+            echo ""
+            echo "Tools:"
+            echo "  remove-bg - Remove background from image"
+            echo "  upscale   - Upscale image to higher resolution"
+            echo "  face      - Enhance faces in image"
+            echo "  restore   - Restore old/damaged photos"
+            echo "  edit      - Edit parts of image with AI inpainting"
+            echo ""
+            echo "Examples:"
+            echo "  ./run.sh enhance remove-bg photo.jpg"
+            echo "  ./run.sh enhance upscale photo.jpg realesrgan"
+            echo "  ./run.sh enhance face portrait.jpg gfpgan"
+            echo "  ./run.sh enhance restore old_photo.jpg"
+            echo "  ./run.sh enhance edit image.jpg"
+            echo "  ./run.sh enhance edit image.jpg mask.png"
+            echo "  ./run.sh enhance edit image.jpg \"\" output.png \"Add a sunset\""
+            exit 1
+        fi
+        if [ -z "$REPLICATE_API_TOKEN" ]; then
+            echo "Error: REPLICATE_API_TOKEN environment variable is required"
+            exit 1
+        fi
+        tool="$2"
+        image="$3"
+        model="${4:-}"
+        output="${5:-}"
+        prompt="${6:-}"
+        
+        cmd="go run cmd/main.go cmd/enhancements.go -enhance $tool -input $image"
+        if [ -n "$model" ]; then
+            cmd="$cmd -model $model"
+        fi
+        if [ -n "$output" ]; then
+            cmd="$cmd -output $output"
+        fi
+        # For edit command, use -p flag for custom prompt
+        if [ "$tool" = "edit" ] && [ -n "$prompt" ]; then
+            cmd="$cmd -p \"$prompt\""
+        fi
+        eval $cmd
         ;;
     
     "run")
         echo "Running Replicate Image AI MCP server..."
-        go run cmd/main.go
+        go run cmd/main.go cmd/enhancements.go
         ;;
     
     "clean")
@@ -89,22 +135,26 @@ case "$1" in
         echo "Replicate Image AI MCP Server Build Script"
         echo "=========================================="
         echo ""
-        echo "Usage: $0 {build|test|integration-test|generate|list-models|test-all|test-id|run|clean}"
+        echo "Usage: $0 {build|test|integration-test|generate|enhance|list-models|test-all|test-id|run|clean}"
         echo ""
         echo "Commands:"
-        echo "  build                - Build the server binary"
-        echo "  test                 - Run unit tests"
-        echo "  integration-test     - Run integration tests"
-        echo "  generate <model>     - Generate image with specific model"
-        echo "  list-models          - List available models"
-        echo "  test-all             - Test all models"
-        echo "  test-id <model-id>   - Test a specific model ID directly"
-        echo "  run                  - Run the MCP server"
-        echo "  clean                - Remove build artifacts"
+        echo "  build                       - Build the server binary"
+        echo "  test                        - Run unit tests"
+        echo "  integration-test            - Run integration tests"
+        echo "  generate <model>            - Generate image with specific model"
+        echo "  enhance <tool> <image>      - Enhance image with AI tools"
+        echo "  list-models                 - List available models"
+        echo "  test-all                    - Test all models"
+        echo "  test-id <model-id>          - Test a specific model ID directly"
+        echo "  run                         - Run the MCP server"
+        echo "  clean                       - Remove build artifacts"
         echo ""
         echo "Examples:"
         echo "  $0 generate flux-schnell"
         echo "  $0 generate sdxl \"a beautiful landscape\""
+        echo "  $0 enhance remove-bg photo.jpg"
+        echo "  $0 enhance upscale image.png realesrgan"
+        echo "  $0 enhance face portrait.jpg gfpgan"
         echo "  $0 test-id stability-ai/stable-diffusion"
         echo "  $0 test-all"
         echo "  $0 list-models"

@@ -144,6 +144,183 @@ func (s *ReplicateImageMCPServer) ListTools(ctx context.Context) (*protocol.List
 				"required": ["id"]
 			}`),
 		},
+		{
+			Name:        "remove_background",
+			Description: "Remove background from an image. Supports multiple models for different quality/speed tradeoffs.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file_path": {
+						"type": "string",
+						"description": "Path to the local image file"
+					},
+					"model": {
+						"type": "string",
+						"description": "Model to use: remove-bg (fast), rembg (balanced), dis (high accuracy)",
+						"enum": ["remove-bg", "rembg", "dis"],
+						"default": "remove-bg"
+					},
+					"output_format": {
+						"type": "string",
+						"description": "Output format: png or webp",
+						"enum": ["png", "webp"],
+						"default": "png"
+					},
+					"filename": {
+						"type": "string",
+						"description": "Optional output filename"
+					}
+				},
+				"required": ["file_path"]
+			}`),
+		},
+		{
+			Name:        "upscale_image",
+			Description: "Upscale an image to higher resolution using AI models.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file_path": {
+						"type": "string",
+						"description": "Path to the local image file"
+					},
+					"scale": {
+						"type": "integer",
+						"description": "Upscale factor: 2, 4, or 8",
+						"enum": [2, 4, 8],
+						"default": 2
+					},
+					"model": {
+						"type": "string",
+						"description": "Model to use: realesrgan (general), clarity (advanced)",
+						"enum": ["realesrgan", "clarity"],
+						"default": "realesrgan"
+					},
+					"face_enhance": {
+						"type": "boolean",
+						"description": "Enhance faces during upscaling",
+						"default": false
+					},
+					"filename": {
+						"type": "string",
+						"description": "Optional output filename"
+					}
+				},
+				"required": ["file_path"]
+			}`),
+		},
+		{
+			Name:        "enhance_face",
+			Description: "Enhance and restore faces in images using AI models.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file_path": {
+						"type": "string",
+						"description": "Path to the local image file"
+					},
+					"enhancement_model": {
+						"type": "string",
+						"description": "Model to use: gfpgan (fast) or codeformer (high quality)",
+						"enum": ["gfpgan", "codeformer"],
+						"default": "gfpgan"
+					},
+					"upscale": {
+						"type": "integer",
+						"description": "Upscale factor: 1, 2, or 4",
+						"enum": [1, 2, 4],
+						"default": 2
+					},
+					"fidelity": {
+						"type": "number",
+						"description": "Fidelity for codeformer (0.0-1.0, lower = better quality)",
+						"default": 0.5
+					},
+					"background_enhance": {
+						"type": "boolean",
+						"description": "Enhance background as well",
+						"default": false
+					},
+					"filename": {
+						"type": "string",
+						"description": "Optional output filename"
+					}
+				},
+				"required": ["file_path"]
+			}`),
+		},
+		{
+			Name:        "restore_photo",
+			Description: "Restore old or damaged photos using AI.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file_path": {
+						"type": "string",
+						"description": "Path to the old/damaged photo"
+					},
+					"with_scratch": {
+						"type": "boolean",
+						"description": "Process scratches and tears",
+						"default": true
+					},
+					"high_resolution": {
+						"type": "boolean",
+						"description": "Use high resolution mode",
+						"default": false
+					},
+					"filename": {
+						"type": "string",
+						"description": "Optional output filename"
+					}
+				},
+				"required": ["file_path"]
+			}`),
+		},
+		{
+			Name:        "edit_image",
+			Description: "Edit specific parts of an image using AI inpainting. You can provide a mask to specify the area to edit, or describe what to change.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file_path": {
+						"type": "string",
+						"description": "Path to the image to edit"
+					},
+					"edit_prompt": {
+						"type": "string",
+						"description": "What to generate in the edited area"
+					},
+					"mask_path": {
+						"type": "string",
+						"description": "Optional: Path to mask image (white=edit, black=keep)"
+					},
+					"selection_prompt": {
+						"type": "string",
+						"description": "Optional: Text description of what to select for editing"
+					},
+					"strength": {
+						"type": "number",
+						"description": "Edit strength (0-1, default 0.8)",
+						"default": 0.8
+					},
+					"guidance_scale": {
+						"type": "number",
+						"description": "How closely to follow the prompt (1-20, default 7.5)",
+						"default": 7.5
+					},
+					"negative_prompt": {
+						"type": "string",
+						"description": "What to avoid in the edited area"
+					},
+					"filename": {
+						"type": "string",
+						"description": "Optional output filename"
+					}
+				},
+				"required": ["file_path", "edit_prompt"]
+			}`),
+		},
 	}
 
 	return &protocol.ListToolsResponse{Tools: tools}, nil
@@ -208,6 +385,96 @@ func (s *ReplicateImageMCPServer) CallTool(ctx context.Context, req *protocol.Ca
 
 	case "get_image":
 		result, err := s.getImage(ctx, req.Arguments)
+		if err != nil {
+			return &protocol.CallToolResponse{
+				Content: []protocol.ToolContent{{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %v", err),
+				}},
+				IsError: true,
+			}, nil
+		}
+		return &protocol.CallToolResponse{
+			Content: []protocol.ToolContent{{
+				Type: "text",
+				Text: result,
+			}},
+		}, nil
+
+	case "remove_background":
+		result, err := s.removeBackground(ctx, req.Arguments)
+		if err != nil {
+			return &protocol.CallToolResponse{
+				Content: []protocol.ToolContent{{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %v", err),
+				}},
+				IsError: true,
+			}, nil
+		}
+		return &protocol.CallToolResponse{
+			Content: []protocol.ToolContent{{
+				Type: "text",
+				Text: result,
+			}},
+		}, nil
+
+	case "upscale_image":
+		result, err := s.upscaleImage(ctx, req.Arguments)
+		if err != nil {
+			return &protocol.CallToolResponse{
+				Content: []protocol.ToolContent{{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %v", err),
+				}},
+				IsError: true,
+			}, nil
+		}
+		return &protocol.CallToolResponse{
+			Content: []protocol.ToolContent{{
+				Type: "text",
+				Text: result,
+			}},
+		}, nil
+
+	case "enhance_face":
+		result, err := s.enhanceFace(ctx, req.Arguments)
+		if err != nil {
+			return &protocol.CallToolResponse{
+				Content: []protocol.ToolContent{{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %v", err),
+				}},
+				IsError: true,
+			}, nil
+		}
+		return &protocol.CallToolResponse{
+			Content: []protocol.ToolContent{{
+				Type: "text",
+				Text: result,
+			}},
+		}, nil
+
+	case "restore_photo":
+		result, err := s.restorePhoto(ctx, req.Arguments)
+		if err != nil {
+			return &protocol.CallToolResponse{
+				Content: []protocol.ToolContent{{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %v", err),
+				}},
+				IsError: true,
+			}, nil
+		}
+		return &protocol.CallToolResponse{
+			Content: []protocol.ToolContent{{
+				Type: "text",
+				Text: result,
+			}},
+		}, nil
+
+	case "edit_image":
+		result, err := s.editImage(ctx, req.Arguments)
 		if err != nil {
 			return &protocol.CallToolResponse{
 				Content: []protocol.ToolContent{{
@@ -705,6 +972,11 @@ func main() {
 		prompt        string
 		versionFlag   bool
 		testModelID   string
+		// Enhancement testing flags
+		testEnhance      string
+		inputImage       string
+		enhanceModel     string
+		outputFile       string
 	)
 	
 	flag.StringVar(&generateModel, "g", "", "Generate an image using specified model (e.g., -g flux-schnell)")
@@ -713,6 +985,11 @@ func main() {
 	flag.StringVar(&prompt, "p", defaultTestPrompt, "Custom prompt for generation")
 	flag.BoolVar(&versionFlag, "version", false, "Show version information")
 	flag.StringVar(&testModelID, "test-id", "", "Test a specific model ID directly (e.g., -test-id stability-ai/stable-diffusion)")
+	// Enhancement testing flags
+	flag.StringVar(&testEnhance, "enhance", "", "Test enhancement tool: remove-bg, upscale, face, restore, edit")
+	flag.StringVar(&inputImage, "input", "", "Input image path for enhancement tests")
+	flag.StringVar(&enhanceModel, "model", "", "Model to use for enhancement (e.g., gfpgan, codeformer)")
+	flag.StringVar(&outputFile, "output", "", "Output filename for enhanced image")
 	flag.Parse()
 	
 	if versionFlag {
@@ -725,6 +1002,114 @@ func main() {
 	// Handle command-line testing options
 	if listModels {
 		listAvailableModels()
+		return
+	}
+	
+	// Handle enhancement testing
+	if testEnhance != "" {
+		if inputImage == "" {
+			fmt.Println("Error: -input flag is required when using -enhance")
+			fmt.Println("Usage: replicate_image_ai -enhance <tool> -input <image_path>")
+			fmt.Println("Tools: remove-bg, upscale, face, restore, edit")
+			os.Exit(1)
+		}
+		
+		// Create server instance
+		server, err := NewReplicateImageMCPServer()
+		if err != nil {
+			log.Fatalf("Failed to create server: %v", err)
+		}
+		
+		ctx := context.Background()
+		var result string
+		
+		switch testEnhance {
+		case "remove-bg", "remove", "bg":
+			fmt.Printf("Removing background from: %s\n", inputImage)
+			params := map[string]interface{}{
+				"file_path": inputImage,
+			}
+			if enhanceModel != "" {
+				params["model"] = enhanceModel // remove-bg, rembg, dis
+			}
+			if outputFile != "" {
+				params["filename"] = outputFile
+			}
+			result, err = server.removeBackground(ctx, params)
+			
+		case "upscale", "up":
+			fmt.Printf("Upscaling image: %s\n", inputImage)
+			params := map[string]interface{}{
+				"file_path": inputImage,
+				"scale": 2.0,
+			}
+			if enhanceModel != "" {
+				params["model"] = enhanceModel // realesrgan, clarity
+			}
+			if outputFile != "" {
+				params["filename"] = outputFile
+			}
+			result, err = server.upscaleImage(ctx, params)
+			
+		case "face", "enhance-face":
+			fmt.Printf("Enhancing faces in: %s\n", inputImage)
+			params := map[string]interface{}{
+				"file_path": inputImage,
+				"upscale": 2.0,
+			}
+			if enhanceModel != "" {
+				params["enhancement_model"] = enhanceModel // gfpgan, codeformer
+			}
+			if outputFile != "" {
+				params["filename"] = outputFile
+			}
+			result, err = server.enhanceFace(ctx, params)
+			
+		case "restore", "photo":
+			fmt.Printf("Restoring photo: %s\n", inputImage)
+			params := map[string]interface{}{
+				"file_path": inputImage,
+				"with_scratch": true,
+			}
+			if outputFile != "" {
+				params["filename"] = outputFile
+			}
+			result, err = server.restorePhoto(ctx, params)
+			
+		case "edit", "inpaint":
+			fmt.Printf("Editing image: %s\n", inputImage)
+			editPrompt := "Replace with beautiful flowers"
+			if prompt != "" && prompt != defaultTestPrompt {
+				editPrompt = prompt
+			}
+			params := map[string]interface{}{
+				"file_path": inputImage,
+				"edit_prompt": editPrompt,
+				"strength": 0.8,
+			}
+			// Check if mask image is provided via -model flag
+			if enhanceModel != "" && enhanceModel != "inpainting" {
+				params["mask_path"] = enhanceModel
+				fmt.Printf("Using mask: %s\n", enhanceModel)
+			}
+			if outputFile != "" {
+				params["filename"] = outputFile
+			}
+			result, err = server.editImage(ctx, params)
+			
+		default:
+			fmt.Printf("Unknown enhancement tool: %s\n", testEnhance)
+			fmt.Println("Available tools: remove-bg, upscale, face, restore, edit")
+			os.Exit(1)
+		}
+		
+		if err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+			os.Exit(1)
+		}
+		
+		fmt.Printf("✅ Success!\n")
+		fmt.Printf("Result:\n%s\n", result)
 		return
 	}
 	
