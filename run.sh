@@ -60,6 +60,20 @@ case "$1" in
         go run cmd/main.go -test
         ;;
     
+    "test-id")
+        # Test a specific model ID directly
+        if [ -z "$2" ]; then
+            echo "Usage: ./run.sh test-id <model-id>"
+            echo "Example: ./run.sh test-id stability-ai/stable-diffusion"
+            exit 1
+        fi
+        if [ -z "$REPLICATE_API_TOKEN" ]; then
+            echo "Error: REPLICATE_API_TOKEN environment variable is required"
+            exit 1
+        fi
+        go run cmd/main.go -test-id "$2"
+        ;;
+    
     "run")
         echo "Running Replicate Image AI MCP server..."
         go run cmd/main.go
@@ -75,7 +89,7 @@ case "$1" in
         echo "Replicate Image AI MCP Server Build Script"
         echo "=========================================="
         echo ""
-        echo "Usage: $0 {build|test|integration-test|generate|list-models|test-all|run|clean}"
+        echo "Usage: $0 {build|test|integration-test|generate|list-models|test-all|test-id|run|clean}"
         echo ""
         echo "Commands:"
         echo "  build                - Build the server binary"
@@ -84,12 +98,14 @@ case "$1" in
         echo "  generate <model>     - Generate image with specific model"
         echo "  list-models          - List available models"
         echo "  test-all             - Test all models"
+        echo "  test-id <model-id>   - Test a specific model ID directly"
         echo "  run                  - Run the MCP server"
         echo "  clean                - Remove build artifacts"
         echo ""
         echo "Examples:"
         echo "  $0 generate flux-schnell"
         echo "  $0 generate sdxl \"a beautiful landscape\""
+        echo "  $0 test-id stability-ai/stable-diffusion"
         echo "  $0 test-all"
         echo "  $0 list-models"
         exit 1

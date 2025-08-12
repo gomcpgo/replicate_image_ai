@@ -704,6 +704,7 @@ func main() {
 		testAll       bool
 		prompt        string
 		versionFlag   bool
+		testModelID   string
 	)
 	
 	flag.StringVar(&generateModel, "g", "", "Generate an image using specified model (e.g., -g flux-schnell)")
@@ -711,6 +712,7 @@ func main() {
 	flag.BoolVar(&testAll, "test", false, "Test all models")
 	flag.StringVar(&prompt, "p", defaultTestPrompt, "Custom prompt for generation")
 	flag.BoolVar(&versionFlag, "version", false, "Show version information")
+	flag.StringVar(&testModelID, "test-id", "", "Test a specific model ID directly (e.g., -test-id stability-ai/stable-diffusion)")
 	flag.Parse()
 	
 	if versionFlag {
@@ -726,11 +728,36 @@ func main() {
 		return
 	}
 	
-	if generateModel != "" || testAll {
+	if generateModel != "" || testAll || testModelID != "" {
 		// Create server instance for testing
 		server, err := NewReplicateImageMCPServer()
 		if err != nil {
 			log.Fatalf("Failed to create server: %v", err)
+		}
+		
+		if testModelID != "" {
+			// Test a raw model ID directly
+			fmt.Printf("Testing raw model ID: %s\n", testModelID)
+			ctx := context.Background()
+			input := map[string]interface{}{
+				"prompt": "A simple test image",
+				"width":  512.0,
+				"height": 512.0,
+			}
+			
+			prediction, err := server.client.CreatePrediction(ctx, testModelID, input)
+			if err != nil {
+				fmt.Printf("❌ Failed: %v\n", err)
+				os.Exit(1)
+			}
+			
+			fmt.Printf("✅ SUCCESS! Model ID works: %s\n", testModelID)
+			fmt.Printf("   Prediction ID: %s\n", prediction.ID)
+			fmt.Printf("   Status: %s\n", prediction.Status)
+			
+			// Cancel to save resources
+			server.client.CancelPrediction(ctx, prediction.ID)
+			return
 		}
 		
 		if generateModel != "" {
