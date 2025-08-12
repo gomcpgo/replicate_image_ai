@@ -12,8 +12,8 @@ const (
 	ModelFluxSchnell   = "black-forest-labs/flux-schnell"        // Fast generation (default)
 	ModelFluxDev       = "black-forest-labs/flux-dev"            // Development version  
 	ModelFluxPro       = "black-forest-labs/flux-pro"            // High quality (paid)
-	ModelSDXL          = "stability-ai/sdxl"                     // Stable Diffusion XL
-	ModelSDXLLightning = "bytedance/sdxl-lightning-4step"        // Fast SDXL variant
+	ModelSDXL          = "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc"                     // Stable Diffusion XL
+	ModelSDXLLightning = "bytedance/sdxl-lightning-4step:6f7a773af6fc3e8de9d5a3c00be77c17308914bf67772726aff83496ba1e3bbe"        // Fast SDXL variant
 	ModelSeedream3     = "bytedance/seedream-3"                  // High quality
 	ModelIdeogramTurbo = "ideogram-ai/ideogram-v3-turbo"         // Text in images
 	ModelRecraft       = "recraft-ai/recraft-v3"                 // Raster images
