@@ -16,6 +16,7 @@ import (
 	"github.com/gomcpgo/mcp/pkg/server"
 	"github.com/gomcpgo/replicate_image_ai/pkg/client"
 	"github.com/gomcpgo/replicate_image_ai/pkg/config"
+	"github.com/gomcpgo/replicate_image_ai/pkg/responses"
 	"github.com/gomcpgo/replicate_image_ai/pkg/storage"
 	"github.com/gomcpgo/replicate_image_ai/pkg/types"
 )
@@ -511,7 +512,7 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 	// Parse parameters
 	prompt, ok := params["prompt"].(string)
 	if !ok || prompt == "" {
-		return "", fmt.Errorf("prompt parameter is required")
+		return responses.BuildErrorResponse("generate_image", "invalid_parameters", "prompt parameter is required", nil), nil
 	}
 	log.Printf("Prompt: %s", prompt)
 
@@ -600,7 +601,7 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 	// Generate unique ID for this operation
 	id, err := s.storage.GenerateID()
 	if err != nil {
-		return "", fmt.Errorf("failed to generate ID: %w", err)
+		return responses.BuildErrorResponse("generate_image", "internal_error", fmt.Sprintf("failed to generate ID: %v", err), nil), nil
 	}
 
 	// Create prediction
@@ -609,7 +610,11 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 	prediction, err := s.client.CreatePrediction(ctx, modelID, input)
 	if err != nil {
 		log.Printf("ERROR: Failed to create prediction: %v", err)
-		return "", fmt.Errorf("failed to create prediction: %w", err)
+		details := map[string]interface{}{
+			"model": modelID,
+			"input": input,
+		}
+		return responses.BuildErrorResponse("generate_image", "api_error", fmt.Sprintf("failed to create prediction: %v", err), details), nil
 	}
 	log.Printf("Prediction created successfully: ID = %s", prediction.ID)
 
@@ -639,12 +644,20 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 		}
 
 		if outputURL == "" {
-			return "", fmt.Errorf("no output URL in prediction result")
+			details := map[string]interface{}{
+				"prediction_id": prediction.ID,
+				"output":        result.Output,
+			}
+			return responses.BuildErrorResponse("generate_image", "no_output", "no output URL in prediction result", details), nil
 		}
 
 		imagePath, err := s.storage.SaveImage(id, outputURL, filename)
 		if err != nil {
-			return "", fmt.Errorf("failed to save image: %w", err)
+			details := map[string]interface{}{
+				"prediction_id": prediction.ID,
+				"url":           outputURL,
+			}
+			return responses.BuildErrorResponse("generate_image", "save_failed", fmt.Sprintf("failed to save image: %v", err), details), nil
 		}
 
 		// Save metadata
@@ -677,7 +690,33 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 			}
 		}
 
-		return fmt.Sprintf("Image generated successfully and saved to: %s (ID: %s)", imagePath, id), nil
+		// Build structured success response
+		paths := map[string]string{
+			"file_path": imagePath,
+			"url":       outputURL,
+		}
+		
+		modelInfo := map[string]string{
+			"id":   modelID,
+			"name": responses.ExtractModelName(modelID),
+			"type": model,
+		}
+		
+		parameters := map[string]interface{}{
+			"prompt":          prompt,
+			"width":           input["width"],
+			"height":          input["height"],
+			"guidance_scale":  input["guidance_scale"],
+			"negative_prompt": input["negative_prompt"],
+			"seed":            input["seed"],
+		}
+		
+		metrics := map[string]interface{}{
+			"generation_time": time.Since(startTime).Seconds(),
+			"file_size":       responses.GetFileSize(imagePath),
+		}
+		
+		return responses.BuildSuccessResponse("generate_image", id, paths, modelInfo, parameters, metrics, prediction.ID), nil
 	}
 
 	// If timed out or still processing
@@ -702,23 +741,31 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 		}
 		s.storage.SaveMetadata(id, metadata)
 
-		return fmt.Sprintf("Image generation in progress (prediction_id: %s, storage_id: %s). Please call continue_operation with prediction_id='%s' and wait_time=30 to check status.", 
-			prediction.ID, id, prediction.ID), nil
+		// Build processing response
+		return responses.BuildProcessingResponse("generate_image", prediction.ID, id, 30), nil
 	}
 
 	// If failed
 	if waitErr != nil {
-		return "", fmt.Errorf("generation failed: %w", waitErr)
+		details := map[string]interface{}{
+			"prediction_id": prediction.ID,
+			"storage_id":    id,
+		}
+		return responses.BuildErrorResponse("generate_image", "generation_failed", waitErr.Error(), details), nil
 	}
 
-	return "", fmt.Errorf("unexpected prediction status: %s", result.Status)
+	details := map[string]interface{}{
+		"prediction_id": prediction.ID,
+		"status":        result.Status,
+	}
+	return responses.BuildErrorResponse("generate_image", "unexpected_status", fmt.Sprintf("Unexpected prediction status: %s", result.Status), details), nil
 }
 
 // continueOperation handles the continue_operation tool
 func (s *ReplicateImageMCPServer) continueOperation(ctx context.Context, params map[string]interface{}) (string, error) {
 	predictionID, ok := params["prediction_id"].(string)
 	if !ok || predictionID == "" {
-		return "", fmt.Errorf("prediction_id parameter is required")
+		return responses.BuildErrorResponse("continue_operation", "invalid_parameters", "prediction_id parameter is required", nil), nil
 	}
 
 	waitTime := 30
@@ -747,37 +794,65 @@ func (s *ReplicateImageMCPServer) continueOperation(ctx context.Context, params 
 		}
 
 		if outputURL == "" {
-			return "", fmt.Errorf("no output URL in prediction result")
+			details := map[string]interface{}{
+				"prediction_id": predictionID,
+				"output":        result.Output,
+			}
+			return responses.BuildErrorResponse("continue_operation", "no_output", "no output URL in prediction result", details), nil
 		}
 
 		// Find the storage ID for this prediction
 		// For now, generate a new ID (in production, we'd track this mapping)
 		id, err := s.storage.GenerateID()
 		if err != nil {
-			return "", fmt.Errorf("failed to generate ID: %w", err)
+			return responses.BuildErrorResponse("continue_operation", "internal_error", fmt.Sprintf("failed to generate ID: %v", err), nil), nil
 		}
 
 		// Save the image
 		imagePath, err := s.storage.SaveImage(id, outputURL, "")
 		if err != nil {
-			return "", fmt.Errorf("failed to save image: %w", err)
+			details := map[string]interface{}{
+				"prediction_id": predictionID,
+				"url":           outputURL,
+			}
+			return responses.BuildErrorResponse("continue_operation", "save_failed", fmt.Sprintf("failed to save image: %v", err), details), nil
 		}
 
-		return fmt.Sprintf("Image generated successfully and saved to: %s (ID: %s)", imagePath, id), nil
+		// Build success response
+		paths := map[string]string{
+			"file_path": imagePath,
+			"url":       outputURL,
+		}
+		
+		modelInfo := map[string]string{
+			"prediction_id": predictionID,
+		}
+		
+		metrics := map[string]interface{}{
+			"file_size": responses.GetFileSize(imagePath),
+		}
+		
+		return responses.BuildSuccessResponse("continue_operation", id, paths, modelInfo, nil, metrics, predictionID), nil
 	}
 
 	// If still processing
 	if result != nil && (result.Status == types.StatusProcessing || result.Status == types.StatusStarting) {
-		return fmt.Sprintf("Still processing (prediction_id: %s). Please call continue_operation again with prediction_id='%s' and wait_time=30 to continue checking.", 
-			predictionID, predictionID), nil
+		return responses.BuildProcessingResponse("continue_operation", predictionID, "", 30), nil
 	}
 
 	// If failed
 	if err != nil {
-		return "", fmt.Errorf("operation failed: %w", err)
+		details := map[string]interface{}{
+			"prediction_id": predictionID,
+		}
+		return responses.BuildErrorResponse("continue_operation", "operation_failed", err.Error(), details), nil
 	}
 
-	return "", fmt.Errorf("unexpected prediction status: %s", result.Status)
+	details := map[string]interface{}{
+		"prediction_id": predictionID,
+		"status":        result.Status,
+	}
+	return responses.BuildErrorResponse("continue_operation", "unexpected_status", fmt.Sprintf("Unexpected prediction status: %s", result.Status), details), nil
 }
 
 // listImages handles the list_images tool
