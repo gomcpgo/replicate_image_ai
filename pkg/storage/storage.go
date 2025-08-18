@@ -1,10 +1,12 @@
 package storage
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,6 +27,75 @@ func NewStorage(rootPath string) *Storage {
 	return &Storage{
 		rootPath: rootPath,
 	}
+}
+
+// detectImageFormat detects the image format from content and metadata
+func detectImageFormat(data []byte, contentType string, url string) string {
+	// 1. Try Content-Type header first (most reliable for HTTP responses)
+	contentType = strings.ToLower(contentType)
+	switch {
+	case strings.Contains(contentType, "image/jpeg") || strings.Contains(contentType, "image/jpg"):
+		return ".jpg"
+	case strings.Contains(contentType, "image/png"):
+		return ".png"
+	case strings.Contains(contentType, "image/webp"):
+		return ".webp"
+	case strings.Contains(contentType, "image/gif"):
+		return ".gif"
+	case strings.Contains(contentType, "image/bmp"):
+		return ".bmp"
+	}
+	
+	// 2. Check magic bytes (file signatures) - most reliable for actual content
+	if len(data) >= 12 {
+		// WebP: RIFF....WEBP
+		if bytes.HasPrefix(data, []byte("RIFF")) && len(data) >= 12 {
+			if string(data[8:12]) == "WEBP" {
+				return ".webp"
+			}
+		}
+		
+		// PNG: 89 50 4E 47 0D 0A 1A 0A
+		if bytes.HasPrefix(data, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}) {
+			return ".png"
+		}
+		
+		// JPEG: FF D8 FF
+		if bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF}) {
+			return ".jpg"
+		}
+		
+		// GIF: GIF87a or GIF89a
+		if bytes.HasPrefix(data, []byte("GIF8")) {
+			return ".gif"
+		}
+		
+		// BMP: BM
+		if bytes.HasPrefix(data, []byte{0x42, 0x4D}) {
+			return ".bmp"
+		}
+	}
+	
+	// 3. Try to parse from URL as fallback
+	urlLower := strings.ToLower(url)
+	if strings.Contains(urlLower, ".webp") {
+		return ".webp"
+	}
+	if strings.Contains(urlLower, ".png") {
+		return ".png"
+	}
+	if strings.Contains(urlLower, ".jpg") || strings.Contains(urlLower, ".jpeg") {
+		return ".jpg"
+	}
+	if strings.Contains(urlLower, ".gif") {
+		return ".gif"
+	}
+	if strings.Contains(urlLower, ".bmp") {
+		return ".bmp"
+	}
+	
+	// 4. Default to WebP for Replicate (most common output format)
+	return ".webp"
 }
 
 // GenerateID generates a unique 8-character alphanumeric ID
@@ -62,22 +133,9 @@ func (s *Storage) GenerateID() (string, error) {
 
 // SaveImage saves an image from a URL or base64 data
 func (s *Storage) SaveImage(id string, imageURL string, filename string) (string, error) {
-	// Determine filename
-	if filename == "" {
-		// Generate a simple filename based on ID
-		ext := ".png" // default extension
-		if strings.Contains(imageURL, ".jpg") || strings.Contains(imageURL, ".jpeg") {
-			ext = ".jpg"
-		} else if strings.Contains(imageURL, ".webp") {
-			ext = ".webp"
-		}
-		filename = "image" + ext
-	}
-
-	imagePath := filepath.Join(s.rootPath, id, filename)
-
-	// Download or decode the image
+	// Download or decode the image first to detect format
 	var imageData []byte
+	var contentType string
 	var err error
 
 	if strings.HasPrefix(imageURL, "data:") {
@@ -86,6 +144,16 @@ func (s *Storage) SaveImage(id string, imageURL string, filename string) (string
 		if len(parts) != 2 {
 			return "", fmt.Errorf("invalid base64 data")
 		}
+		
+		// Extract MIME type from data URL if present
+		if len(parts[0]) > 5 {
+			// Format: data:image/png;base64
+			typeInfo := parts[0][5:] // Remove "data:"
+			if idx := strings.Index(typeInfo, ";"); idx != -1 {
+				contentType = typeInfo[:idx]
+			}
+		}
+		
 		imageData, err = base64.StdEncoding.DecodeString(parts[1])
 		if err != nil {
 			return "", fmt.Errorf("failed to decode base64: %w", err)
@@ -102,11 +170,40 @@ func (s *Storage) SaveImage(id string, imageURL string, filename string) (string
 			return "", fmt.Errorf("failed to download image: status %d", resp.StatusCode)
 		}
 
+		// Get Content-Type header
+		contentType = resp.Header.Get("Content-Type")
+
 		imageData, err = io.ReadAll(resp.Body)
 		if err != nil {
 			return "", fmt.Errorf("failed to read image data: %w", err)
 		}
 	}
+
+	// Detect the actual image format
+	detectedExt := detectImageFormat(imageData, contentType, imageURL)
+	log.Printf("[Storage] Detected image format: %s (Content-Type: %s, URL: %s)", detectedExt, contentType, imageURL)
+	
+	// Determine final filename
+	if filename == "" {
+		// Generate a simple filename with detected extension
+		filename = "image" + detectedExt
+	} else {
+		// Check if filename already has an extension
+		existingExt := filepath.Ext(filename)
+		if existingExt == "" {
+			// Add the detected extension
+			filename = filename + detectedExt
+			log.Printf("[Storage] Added extension to filename: %s", filename)
+		} else {
+			// Filename already has an extension
+			// Log if it differs from detected format
+			if existingExt != detectedExt {
+				log.Printf("[Storage] Warning: Provided extension %s differs from detected %s", existingExt, detectedExt)
+			}
+		}
+	}
+
+	imagePath := filepath.Join(s.rootPath, id, filename)
 
 	// Save the image
 	if err := os.WriteFile(imagePath, imageData, 0644); err != nil {
