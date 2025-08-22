@@ -74,6 +74,38 @@ case "$1" in
         go run cmd/main.go cmd/enhancements.go -test-id "$2"
         ;;
     
+    "gen4")
+        # Test RunwayML Gen-4 with reference images
+        if [ -z "$REPLICATE_API_TOKEN" ]; then
+            echo "Error: REPLICATE_API_TOKEN environment variable is required"
+            exit 1
+        fi
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: ./run.sh gen4 <ref_images> <ref_tags> [prompt] [aspect_ratio] [resolution]"
+            echo ""
+            echo "Examples:"
+            echo "  ./run.sh gen4 'person.jpg' 'person' '@person in a coffee shop'"
+            echo "  ./run.sh gen4 'person.jpg,product.jpg' 'person,product' '@person holding @product'"
+            echo "  ./run.sh gen4 'img1.jpg,img2.jpg,img3.jpg' 'woman,robot,room' '@woman and @robot in @room'"
+            exit 1
+        fi
+        
+        ref_images="$2"
+        ref_tags="$3"
+        prompt="${4:-@${ref_tags%%,*} in a modern office setting with natural lighting}"
+        aspect="${5:-16:9}"
+        resolution="${6:-1080p}"
+        
+        echo "Testing RunwayML Gen-4..."
+        echo "Reference Images: $ref_images"
+        echo "Reference Tags: $ref_tags"
+        echo "Prompt: $prompt"
+        echo "Aspect Ratio: $aspect"
+        echo "Resolution: $resolution"
+        
+        go run cmd/main.go cmd/enhancements.go -gen4 -ref-images "$ref_images" -ref-tags "$ref_tags" -aspect "$aspect" -resolution "$resolution" -p "$prompt"
+        ;;
+    
     "imagen4")
         # Test Google Imagen-4 photorealistic generation
         if [ -z "$REPLICATE_API_TOKEN" ]; then
@@ -181,13 +213,14 @@ case "$1" in
         echo "Replicate Image AI MCP Server Build Script"
         echo "=========================================="
         echo ""
-        echo "Usage: $0 {build|test|integration-test|generate|imagen4|edit|enhance|list-models|test-all|test-id|run|clean}"
+        echo "Usage: $0 {build|test|integration-test|generate|gen4|imagen4|edit|enhance|list-models|test-all|test-id|run|clean}"
         echo ""
         echo "Commands:"
         echo "  build                       - Build the server binary"
         echo "  test                        - Run unit tests"
         echo "  integration-test            - Run integration tests"
         echo "  generate <model>            - Generate image with specific model"
+        echo "  gen4 <images> <tags>        - Generate with RunwayML Gen-4 using reference images"
         echo "  imagen4 [prompt] [aspect]   - Generate with Google Imagen-4 photorealistic model"
         echo "  edit <model> <image>        - Edit image with FLUX Kontext (text-based editing)"
         echo "  enhance <tool> <image>      - Enhance image with AI tools"
@@ -200,6 +233,7 @@ case "$1" in
         echo "Examples:"
         echo "  $0 generate flux-schnell"
         echo "  $0 generate sdxl \"a beautiful landscape\""
+        echo "  $0 gen4 'person.jpg,car.jpg' 'person,car' '@person standing next to @car'"
         echo "  $0 imagen4"
         echo "  $0 imagen4 \"A photorealistic cat\" 16:9"
         echo "  $0 edit pro car.jpg \"Change the car to red\""

@@ -314,6 +314,11 @@ func (s *Storage) GetImagePath(id string, filename string) string {
 	return filepath.Join(s.rootPath, id, filename)
 }
 
+// FileToDataURL converts a local file to a data URL
+func (s *Storage) FileToDataURL(filePath string) (string, error) {
+	return ImageToBase64(filePath)
+}
+
 // ImageToBase64 converts an image file to base64 data URL
 func ImageToBase64(filePath string) (string, error) {
 	data, err := os.ReadFile(filePath)

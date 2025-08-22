@@ -19,6 +19,7 @@ const (
 	ModelRecraft       = "recraft-ai/recraft-v3"                 // Raster images
 	ModelRecraftSVG    = "recraft-ai/recraft-v3-svg"             // SVG generation
 	ModelImagen4       = "google/imagen-4"                       // Google's photorealistic image generation
+	ModelGen4Image     = "runwayml/gen4-image"                   // RunwayML Gen-4 with reference image support
 	
 	// ============== ENHANCEMENT MODELS ==============
 	// All with version hashes for reliability
