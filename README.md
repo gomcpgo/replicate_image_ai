@@ -91,21 +91,35 @@ Generate an AI image from a text prompt.
 
 **Parameters:**
 - `prompt` (required): Text description of the desired image
-- `model`: Model to use (flux-schnell, flux-pro, flux-dev, seedream-3, sdxl, ideogram-turbo)
-- `width`: Image width in pixels (default: 1024)
-- `height`: Image height in pixels (default: 1024)
+- `model`: Model to use (flux-schnell, flux-pro, flux-dev, imagen-4, seedream-3, sdxl, ideogram-turbo)
+- `width`: Image width in pixels (default: 1024) - Note: imagen-4 uses aspect_ratio instead
+- `height`: Image height in pixels (default: 1024) - Note: imagen-4 uses aspect_ratio instead
+- `aspect_ratio`: Aspect ratio for imagen-4 only (1:1, 9:16, 16:9, 3:4, 4:3)
+- `safety_filter_level`: Safety filter for imagen-4 only (block_low_and_above, block_medium_and_above, block_only_high)
+- `output_format`: Output format for imagen-4 only (jpg, png)
 - `filename`: Optional filename for the generated image
 - `seed`: Seed for reproducible generation
-- `guidance_scale`: How closely to follow the prompt (1-20, default: 7.5)
-- `negative_prompt`: What to avoid in the image
+- `guidance_scale`: How closely to follow the prompt (1-20, default: 7.5) - Not supported by imagen-4
+- `negative_prompt`: What to avoid in the image - Not supported by imagen-4
 
-**Example:**
+**Example (Standard models):**
 ```json
 {
   "prompt": "A beautiful sunset over mountains",
   "model": "flux-schnell",
   "width": 1024,
   "height": 1024
+}
+```
+
+**Example (Imagen-4):**
+```json
+{
+  "prompt": "A photorealistic portrait of a cat with striking green eyes",
+  "model": "imagen-4",
+  "aspect_ratio": "1:1",
+  "safety_filter_level": "block_only_high",
+  "output_format": "jpg"
 }
 ```
 
@@ -173,6 +187,7 @@ REPLICATE_IMAGES_ROOT_FOLDER/
 - **flux-schnell**: Fast generation, good quality (default)
 - **flux-pro**: Best quality, slower
 - **flux-dev**: Development version
+- **imagen-4**: Google's photorealistic model with superior text rendering and fine details
 - **seedream-3**: State-of-the-art quality
 - **sdxl**: Stable Diffusion XL
 - **ideogram-turbo**: Best for text in images

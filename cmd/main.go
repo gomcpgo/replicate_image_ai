@@ -69,19 +69,36 @@ func (s *ReplicateImageMCPServer) ListTools(ctx context.Context) (*protocol.List
 					},
 					"model": {
 						"type": "string",
-						"description": "Model to use: flux-schnell (default, fast), flux-pro (best quality), flux-dev, seedream-3, sdxl, ideogram-turbo (for text in images)",
-						"enum": ["flux-schnell", "flux-pro", "flux-dev", "seedream-3", "sdxl", "ideogram-turbo"],
+						"description": "Model to use. Choose based on your needs:\n- flux-schnell: Fast, general purpose (default)\n- flux-pro: Premium artistic quality\n- flux-dev: Development version\n- imagen-4: Google's photorealistic model, best for lifelike images, superior text rendering\n- seedream-3: High quality artistic/stylized\n- sdxl: Versatile, good balance\n- ideogram-turbo: Best for images with text/logos",
+						"enum": ["flux-schnell", "flux-pro", "flux-dev", "imagen-4", "seedream-3", "sdxl", "ideogram-turbo"],
 						"default": "flux-schnell"
 					},
 					"width": {
 						"type": "integer",
-						"description": "Image width in pixels (default: 1024)",
+						"description": "Image width in pixels (default: 1024). Note: imagen-4 uses aspect_ratio instead",
 						"default": 1024
 					},
 					"height": {
 						"type": "integer",
-						"description": "Image height in pixels (default: 1024)",
+						"description": "Image height in pixels (default: 1024). Note: imagen-4 uses aspect_ratio instead",
 						"default": 1024
+					},
+					"aspect_ratio": {
+						"type": "string",
+						"description": "Aspect ratio for imagen-4 model only",
+						"enum": ["1:1", "9:16", "16:9", "3:4", "4:3"]
+					},
+					"safety_filter_level": {
+						"type": "string",
+						"description": "Safety filter level for imagen-4 model only",
+						"enum": ["block_low_and_above", "block_medium_and_above", "block_only_high"],
+						"default": "block_only_high"
+					},
+					"output_format": {
+						"type": "string",
+						"description": "Output format for imagen-4 model only",
+						"enum": ["jpg", "png"],
+						"default": "jpg"
 					},
 					"filename": {
 						"type": "string",
@@ -93,12 +110,12 @@ func (s *ReplicateImageMCPServer) ListTools(ctx context.Context) (*protocol.List
 					},
 					"guidance_scale": {
 						"type": "number",
-						"description": "How closely to follow the prompt (1-20, default: 7.5)",
+						"description": "How closely to follow the prompt (1-20, default: 7.5). Not supported by imagen-4",
 						"default": 7.5
 					},
 					"negative_prompt": {
 						"type": "string",
-						"description": "What to avoid in the image"
+						"description": "What to avoid in the image. Not supported by imagen-4"
 					}
 				},
 				"required": ["prompt"]
@@ -562,6 +579,8 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 		modelID = types.ModelFluxPro
 	case "flux-dev":
 		modelID = types.ModelFluxDev
+	case "imagen-4":
+		modelID = types.ModelImagen4
 	case "seedream-3", "seedream":
 		modelID = types.ModelSeedream3
 	case "sdxl":
@@ -586,26 +605,74 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 		"prompt": prompt,
 	}
 
-	// Add dimensions
-	if width, ok := params["width"].(float64); ok {
-		input["width"] = int(width)
+	// Special handling for Imagen-4
+	if model == "imagen-4" {
+		// Imagen-4 uses aspect_ratio instead of width/height
+		aspectRatio := "1:1"  // Default
+		if ar, ok := params["aspect_ratio"].(string); ok && ar != "" {
+			aspectRatio = ar
+		} else {
+			// Try to infer aspect ratio from width/height if provided
+			width, hasWidth := params["width"].(float64)
+			height, hasHeight := params["height"].(float64)
+			if hasWidth && hasHeight {
+				ratio := width / height
+				if ratio > 1.7 { // ~16:9
+					aspectRatio = "16:9"
+				} else if ratio < 0.6 { // ~9:16
+					aspectRatio = "9:16"
+				} else if ratio > 1.2 && ratio < 1.4 { // ~4:3
+					aspectRatio = "4:3"
+				} else if ratio > 0.7 && ratio < 0.8 { // ~3:4
+					aspectRatio = "3:4"
+				} else {
+					aspectRatio = "1:1"
+				}
+			}
+		}
+		input["aspect_ratio"] = aspectRatio
+
+		// Safety filter level
+		if sfl, ok := params["safety_filter_level"].(string); ok && sfl != "" {
+			input["safety_filter_level"] = sfl
+		} else {
+			input["safety_filter_level"] = "block_only_high"
+		}
+
+		// Output format
+		if of, ok := params["output_format"].(string); ok && of != "" {
+			input["output_format"] = of
+		} else {
+			input["output_format"] = "jpg"
+		}
+
+		log.Printf("Imagen-4 parameters: aspect_ratio=%s, safety_filter=%s, format=%s", 
+			input["aspect_ratio"], input["safety_filter_level"], input["output_format"])
 	} else {
-		input["width"] = 768  // Use 768 as safer default
+		// Standard models use width/height
+		if width, ok := params["width"].(float64); ok {
+			input["width"] = int(width)
+		} else {
+			input["width"] = 768  // Use 768 as safer default
+		}
+
+		if height, ok := params["height"].(float64); ok {
+			input["height"] = int(height)
+		} else {
+			input["height"] = 768  // Use 768 as safer default
+		}
 	}
 
-	if height, ok := params["height"].(float64); ok {
-		input["height"] = int(height)
-	} else {
-		input["height"] = 768  // Use 768 as safer default
-	}
-
-	// Add optional parameters that most models support
+	// Add optional parameters that most models support (except Imagen-4)
 	if seed, ok := params["seed"].(float64); ok {
 		input["seed"] = int(seed)
 	}
 
-	// SDXL and most models use these parameters
-	if model == "sdxl" || model == "seedream-3" {
+	// Model-specific parameters
+	if model == "imagen-4" {
+		// Imagen-4 doesn't support guidance_scale or negative_prompt
+		// Parameters already set above
+	} else if model == "sdxl" || model == "seedream-3" {
 		if guidanceScale, ok := params["guidance_scale"].(float64); ok {
 			input["guidance_scale"] = guidanceScale
 		} else {
@@ -692,26 +759,54 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 		}
 
 		// Save metadata
+		metadataParams := map[string]interface{}{
+			"prompt": prompt,
+		}
+		resultObj := &types.OperationResult{
+			Filename:       filepath.Base(imagePath),
+			GenerationTime: time.Since(startTime).Seconds(),
+			PredictionID:   prediction.ID,
+		}
+		
+		// Add model-specific metadata
+		if model == "imagen-4" {
+			metadataParams["aspect_ratio"] = input["aspect_ratio"]
+			metadataParams["safety_filter_level"] = input["safety_filter_level"]
+			metadataParams["output_format"] = input["output_format"]
+			// Imagen-4 doesn't return exact dimensions, estimate from aspect ratio
+			switch input["aspect_ratio"] {
+			case "16:9":
+				resultObj.Width, resultObj.Height = 1024, 576
+			case "9:16":
+				resultObj.Width, resultObj.Height = 576, 1024
+			case "4:3":
+				resultObj.Width, resultObj.Height = 1024, 768
+			case "3:4":
+				resultObj.Width, resultObj.Height = 768, 1024
+			default: // "1:1"
+				resultObj.Width, resultObj.Height = 1024, 1024
+			}
+		} else {
+			metadataParams["width"] = input["width"]
+			metadataParams["height"] = input["height"]
+			metadataParams["guidance_scale"] = input["guidance_scale"]
+			metadataParams["negative_prompt"] = input["negative_prompt"]
+			if w, ok := input["width"].(int); ok {
+				resultObj.Width = w
+			}
+			if h, ok := input["height"].(int); ok {
+				resultObj.Height = h
+			}
+		}
+		
 		metadata := &types.ImageMetadata{
-			Version:   "1.0",
-			ID:        id,
-			Operation: "generate_image",
-			Timestamp: time.Now(),
-			Model:     modelID,
-			Parameters: map[string]interface{}{
-				"prompt":          prompt,
-				"width":           input["width"],
-				"height":          input["height"],
-				"guidance_scale":  input["guidance_scale"],
-				"negative_prompt": input["negative_prompt"],
-			},
-			Result: &types.OperationResult{
-				Filename:       filepath.Base(imagePath),
-				GenerationTime: time.Since(startTime).Seconds(),
-				PredictionID:   prediction.ID,
-				Width:          input["width"].(int),
-				Height:         input["height"].(int),
-			},
+			Version:    "1.0",
+			ID:         id,
+			Operation:  "generate_image",
+			Timestamp:  time.Now(),
+			Model:      modelID,
+			Parameters: metadataParams,
+			Result:     resultObj,
 		}
 
 		if err := s.storage.SaveMetadata(id, metadata); err != nil {
@@ -734,12 +829,22 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 		}
 		
 		parameters := map[string]interface{}{
-			"prompt":          prompt,
-			"width":           input["width"],
-			"height":          input["height"],
-			"guidance_scale":  input["guidance_scale"],
-			"negative_prompt": input["negative_prompt"],
-			"seed":            input["seed"],
+			"prompt": prompt,
+		}
+		
+		// Add model-specific parameters to response
+		if model == "imagen-4" {
+			parameters["aspect_ratio"] = input["aspect_ratio"]
+			parameters["safety_filter_level"] = input["safety_filter_level"]
+			parameters["output_format"] = input["output_format"]
+		} else {
+			parameters["width"] = input["width"]
+			parameters["height"] = input["height"]
+			parameters["guidance_scale"] = input["guidance_scale"]
+			parameters["negative_prompt"] = input["negative_prompt"]
+		}
+		if seed, ok := input["seed"]; ok {
+			parameters["seed"] = seed
 		}
 		
 		metrics := map[string]interface{}{
@@ -753,19 +858,29 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 	// If timed out or still processing
 	if result != nil && (result.Status == types.StatusProcessing || result.Status == types.StatusStarting) {
 		// Save partial metadata with prediction ID
+		partialParams := map[string]interface{}{
+			"prompt": prompt,
+		}
+		
+		// Add model-specific parameters
+		if model == "imagen-4" {
+			partialParams["aspect_ratio"] = input["aspect_ratio"]
+			partialParams["safety_filter_level"] = input["safety_filter_level"]
+			partialParams["output_format"] = input["output_format"]
+		} else {
+			partialParams["width"] = input["width"]
+			partialParams["height"] = input["height"]
+			partialParams["guidance_scale"] = input["guidance_scale"]
+			partialParams["negative_prompt"] = input["negative_prompt"]
+		}
+		
 		metadata := &types.ImageMetadata{
-			Version:   "1.0",
-			ID:        id,
-			Operation: "generate_image",
-			Timestamp: time.Now(),
-			Model:     modelID,
-			Parameters: map[string]interface{}{
-				"prompt":          prompt,
-				"width":           input["width"],
-				"height":          input["height"],
-				"guidance_scale":  input["guidance_scale"],
-				"negative_prompt": input["negative_prompt"],
-			},
+			Version:    "1.0",
+			ID:         id,
+			Operation:  "generate_image",
+			Timestamp:  time.Now(),
+			Model:      modelID,
+			Parameters: partialParams,
 			Result: &types.OperationResult{
 				PredictionID: prediction.ID,
 			},
@@ -960,6 +1075,7 @@ func listAvailableModels() {
 	fmt.Println("  flux-schnell    - Fast generation (default)")
 	fmt.Println("  flux-dev        - Development version")
 	fmt.Println("  flux-pro        - High quality (paid)")
+	fmt.Println("  imagen-4        - Google's photorealistic model, superior text rendering")
 	fmt.Println("  sdxl            - Stable Diffusion XL")
 	fmt.Println("  sdxl-lightning  - Fast SDXL variant")
 	fmt.Println("  seedream        - High quality generation")
@@ -1047,6 +1163,7 @@ func testAllModels(server *ReplicateImageMCPServer) {
 	}{
 		{"flux-schnell", defaultTestPrompt},
 		{"flux-dev", defaultTestPrompt},
+		{"imagen-4", "A photorealistic close-up of a hummingbird hovering near a bright red flower, with iridescent feathers catching the sunlight"},
 		{"sdxl", defaultTestPrompt},
 		{"sdxl-lightning", defaultTestPrompt},
 		{"seedream", defaultTestPrompt},
@@ -1092,6 +1209,10 @@ func main() {
 		// Image editing flags
 		editModel     string
 		editPrompt    string
+		// Imagen-4 testing
+		imagen4Flag   bool
+		aspectRatio   string
+		safetyFilter  string
 	)
 	
 	flag.StringVar(&generateModel, "g", "", "Generate an image using specified model (e.g., -g flux-schnell)")
@@ -1108,6 +1229,10 @@ func main() {
 	// Edit image flags
 	flag.StringVar(&editModel, "edit", "", "Test image editing with FLUX Kontext: pro, max, or dev")
 	flag.StringVar(&editPrompt, "eprompt", "", "Prompt for image editing (use with -edit and -input)")
+	// Imagen-4 flags
+	flag.BoolVar(&imagen4Flag, "imagen4", false, "Test Google Imagen-4 photorealistic generation")
+	flag.StringVar(&aspectRatio, "aspect", "16:9", "Aspect ratio for Imagen-4 (1:1, 9:16, 16:9, 3:4, 4:3)")
+	flag.StringVar(&safetyFilter, "safety", "block_only_high", "Safety filter for Imagen-4 (block_low_and_above, block_medium_and_above, block_only_high)")
 	flag.Parse()
 	
 	if versionFlag {
@@ -1120,6 +1245,81 @@ func main() {
 	// Handle command-line testing options
 	if listModels {
 		listAvailableModels()
+		return
+	}
+	
+	// Handle Imagen-4 testing
+	if imagen4Flag {
+		// Create server instance
+		server, err := NewReplicateImageMCPServer()
+		if err != nil {
+			log.Fatalf("Failed to create server: %v", err)
+		}
+		
+		ctx := context.Background()
+		
+		// Use custom prompt or default for Imagen-4
+		testPrompt := prompt
+		if prompt == defaultTestPrompt {
+			testPrompt = "A photorealistic portrait of a young woman with vibrant red hair, looking directly at the camera with a warm smile, soft golden hour lighting streaming through a window, shallow depth of field with blurred background, shot on professional camera"
+		}
+		
+		fmt.Println("\n=== Testing Google Imagen-4 ===")
+		fmt.Printf("Prompt: %s\n", testPrompt)
+		fmt.Printf("Aspect Ratio: %s\n", aspectRatio)
+		fmt.Printf("Safety Filter: %s\n", safetyFilter)
+		fmt.Println("---")
+		
+		startTime := time.Now()
+		
+		// Call generateImage with Imagen-4 specific parameters
+		result, err := server.generateImage(ctx, map[string]interface{}{
+			"prompt":               testPrompt,
+			"model":                "imagen-4",
+			"aspect_ratio":         aspectRatio,
+			"safety_filter_level":  safetyFilter,
+			"output_format":        "jpg",
+		})
+		
+		elapsed := time.Since(startTime)
+		
+		if err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+			os.Exit(1)
+		}
+		
+		fmt.Printf("✅ Success! Time: %v\n", elapsed)
+		fmt.Printf("Result:\n%s\n", result)
+		
+		// Check if we need to continue operation
+		if strings.Contains(result, "prediction_id:") && strings.Contains(result, "PROCESSING") {
+			// Extract prediction ID from result
+			lines := strings.Split(result, "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "prediction_id:") {
+					parts := strings.Split(line, ":")
+					if len(parts) >= 2 {
+						predictionID := strings.TrimSpace(parts[1])
+						fmt.Printf("\nContinuing operation for prediction_id: %s\n", predictionID)
+						
+						// Wait for completion
+						continueResult, err := server.continueOperation(ctx, map[string]interface{}{
+							"prediction_id": predictionID,
+							"wait_time":     30.0,
+						})
+						
+						if err != nil {
+							fmt.Printf("❌ Continue error: %v\n", err)
+							os.Exit(1)
+						}
+						
+						fmt.Printf("Final Result:\n%s\n", continueResult)
+						break
+					}
+				}
+			}
+		}
+		
 		return
 	}
 	
