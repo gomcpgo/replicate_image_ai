@@ -655,193 +655,6 @@ func (s *ReplicateImageMCPServer) restorePhoto(ctx context.Context, params map[s
 		fmt.Sprintf("Unexpected status: %s", result.Status), nil), nil
 }
 
-// editImage handles the edit_image tool for inpainting and masked editing
-func (s *ReplicateImageMCPServer) editImage(ctx context.Context, params map[string]interface{}) (string, error) {
-	// Parse parameters
-	filePath, ok := params["file_path"].(string)
-	if !ok || filePath == "" {
-		return responses.BuildErrorResponse("edit_image", "invalid_parameters",
-			"file_path parameter is required", nil), nil
-	}
-
-	editPrompt, ok := params["edit_prompt"].(string)
-	if !ok || editPrompt == "" {
-		return responses.BuildErrorResponse("edit_image", "invalid_parameters",
-			"edit_prompt parameter is required", nil), nil
-	}
-
-	// Convert image to base64 data URL
-	imageDataURL, err := storage.ImageToBase64(filePath)
-	if err != nil {
-		return responses.BuildErrorResponse("edit_image", "file_error",
-			fmt.Sprintf("Failed to load image: %v", err), map[string]interface{}{
-				"file_path": filePath,
-			}), nil
-	}
-
-	// Prepare input
-	input := map[string]interface{}{
-		"image":  imageDataURL,
-		"prompt": editPrompt,
-	}
-
-	// Handle mask path if provided
-	if maskPath, ok := params["mask_path"].(string); ok && maskPath != "" {
-		maskDataURL, err := storage.ImageToBase64(maskPath)
-		if err != nil {
-			return responses.BuildErrorResponse("edit_image", "file_error",
-				fmt.Sprintf("Failed to load mask: %v", err), map[string]interface{}{
-					"mask_path": maskPath,
-				}), nil
-		}
-		input["mask"] = maskDataURL
-	} else if selectionPrompt, ok := params["selection_prompt"].(string); ok && selectionPrompt != "" {
-		// Some models support automatic mask generation from text
-		input["mask_prompt"] = selectionPrompt
-	}
-
-	// Add optional parameters
-	if strength, ok := params["strength"].(float64); ok {
-		input["strength"] = strength
-	} else {
-		input["strength"] = 0.8 // Default strength
-	}
-
-	if guidanceScale, ok := params["guidance_scale"].(float64); ok {
-		input["guidance_scale"] = guidanceScale
-	} else {
-		input["guidance_scale"] = 7.5 // Default guidance scale
-	}
-
-	// Add negative prompt if needed
-	if negativePrompt, ok := params["negative_prompt"].(string); ok && negativePrompt != "" {
-		input["negative_prompt"] = negativePrompt
-	}
-
-	// Generate unique ID
-	id, err := s.storage.GenerateID()
-	if err != nil {
-		return responses.BuildErrorResponse("edit_image", "storage_error",
-			fmt.Sprintf("Failed to generate ID: %v", err), nil), nil
-	}
-
-	// Save original
-	originalPath := s.storage.GetImagePath(id, "original"+filepath.Ext(filePath))
-	if err := copyFile(filePath, originalPath); err != nil {
-		log.Printf("Failed to copy original: %v", err)
-	}
-
-	// Save mask if provided
-	var maskSavedPath string
-	if maskPath, ok := params["mask_path"].(string); ok && maskPath != "" {
-		maskSavedPath = s.storage.GetImagePath(id, "mask"+filepath.Ext(maskPath))
-		if err := copyFile(maskPath, maskSavedPath); err != nil {
-			log.Printf("Failed to copy mask: %v", err)
-		}
-	}
-
-	// Create prediction
-	startTime := time.Now()
-	modelID := types.ModelInpainting
-	prediction, err := s.client.CreatePrediction(ctx, modelID, input)
-	if err != nil {
-		return responses.BuildErrorResponse("edit_image", "api_error",
-			fmt.Sprintf("Failed to create prediction: %v", err), nil), nil
-	}
-
-	// Wait for completion
-	result, waitErr := s.client.WaitForCompletion(ctx, prediction.ID, s.config.OperationTimeout)
-
-	if waitErr == nil && result.Status == types.StatusSucceeded {
-		outputURL := extractOutputURL(result.Output)
-		if outputURL == "" {
-			return responses.BuildErrorResponse("edit_image", "processing_error",
-				"No output URL in prediction result", nil), nil
-		}
-
-		// Determine filename
-		filename := "edited.png"
-		if fn, ok := params["filename"].(string); ok && fn != "" {
-			filename = fn
-		}
-
-		// Save processed image
-		processedPath, err := s.storage.SaveImage(id, outputURL, filename)
-		if err != nil {
-			return responses.BuildErrorResponse("edit_image", "storage_error",
-				fmt.Sprintf("Failed to save image: %v", err), nil), nil
-		}
-
-		// Save metadata
-		metadata := &types.ImageMetadata{
-			Version:   "1.0",
-			ID:        id,
-			Operation: "edit_image",
-			Timestamp: time.Now(),
-			Model:     modelID,
-			Parameters: map[string]interface{}{
-				"edit_prompt":    editPrompt,
-				"strength":       input["strength"],
-				"guidance_scale": input["guidance_scale"],
-				"has_mask":       maskSavedPath != "",
-			},
-			Result: &types.OperationResult{
-				Filename:       filename,
-				GenerationTime: time.Since(startTime).Seconds(),
-				PredictionID:   prediction.ID,
-			},
-		}
-
-		if err := s.storage.SaveMetadata(id, metadata); err != nil {
-			log.Printf("Failed to save metadata: %v", err)
-		}
-
-		// Prepare paths
-		paths := map[string]string{
-			"original":  originalPath,
-			"processed": processedPath,
-		}
-		if maskSavedPath != "" {
-			paths["mask"] = maskSavedPath
-		}
-
-		// Build success response
-		return responses.BuildSuccessResponse(
-			"edit_image",
-			id,
-			paths,
-			map[string]string{
-				"id":   modelID,
-				"name": "Stable Diffusion Inpainting",
-			},
-			map[string]interface{}{
-				"edit_prompt":    editPrompt,
-				"strength":       input["strength"],
-				"guidance_scale": input["guidance_scale"],
-				"has_mask":       maskSavedPath != "",
-			},
-			map[string]interface{}{
-				"processing_time":     time.Since(startTime).Seconds(),
-				"file_size_original":  responses.GetFileSize(filePath),
-				"file_size_processed": responses.GetFileSize(processedPath),
-			},
-			prediction.ID,
-		), nil
-	}
-
-	if result != nil && (result.Status == types.StatusProcessing || result.Status == types.StatusStarting) {
-		return responses.BuildProcessingResponse("edit_image", prediction.ID, id, 25), nil
-	}
-
-	if waitErr != nil {
-		return responses.BuildErrorResponse("edit_image", "processing_failed",
-			fmt.Sprintf("Processing failed: %v", waitErr), nil), nil
-	}
-
-	return responses.BuildErrorResponse("edit_image", "unknown_error",
-		fmt.Sprintf("Unexpected status: %s", result.Status), nil), nil
-}
-
 // Helper function to extract output URL from various response formats
 func extractOutputURL(output interface{}) string {
 	switch v := output.(type) {
@@ -873,4 +686,304 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0644)
+}
+
+// editImage handles the edit_image tool using FLUX Kontext
+func (s *ReplicateImageMCPServer) editImage(ctx context.Context, params map[string]interface{}) (string, error) {
+	// Parse required parameters
+	filePath, ok := params["file_path"].(string)
+	if !ok || filePath == "" {
+		return responses.BuildErrorResponse("edit_image", "invalid_parameters",
+			"file_path parameter is required", nil), nil
+	}
+
+	prompt, ok := params["prompt"].(string)
+	if !ok || prompt == "" {
+		return responses.BuildErrorResponse("edit_image", "invalid_parameters",
+			"prompt parameter is required", nil), nil
+	}
+
+	// Get model selection - default to kontext-pro
+	model := "kontext-pro"
+	if m, ok := params["model"].(string); ok && m != "" {
+		model = m
+	}
+
+	// Map model name to Replicate model ID
+	var modelID string
+	modelInfo := map[string]string{}
+	switch model {
+	case "kontext-pro":
+		modelID = types.ModelFluxKontextPro
+		modelInfo["name"] = "FLUX Kontext Pro"
+		modelInfo["description"] = "Balanced speed and quality (recommended)"
+	case "kontext-max":
+		modelID = types.ModelFluxKontextMax
+		modelInfo["name"] = "FLUX Kontext Max"
+		modelInfo["description"] = "Highest quality, premium tier (higher cost)"
+	case "kontext-dev":
+		modelID = types.ModelFluxKontextDev
+		modelInfo["name"] = "FLUX Kontext Dev"
+		modelInfo["description"] = "Advanced controls, more parameters"
+	default:
+		return responses.BuildErrorResponse("edit_image", "invalid_model",
+			fmt.Sprintf("Invalid model: %s. Use kontext-pro, kontext-max, or kontext-dev", model), nil), nil
+	}
+
+	log.Printf("Using FLUX Kontext model: %s (%s)", model, modelID)
+
+	// Convert image to base64 data URL
+	dataURL, err := storage.ImageToBase64(filePath)
+	if err != nil {
+		return responses.BuildErrorResponse("edit_image", "file_error",
+			fmt.Sprintf("Failed to load image: %v", err), map[string]interface{}{
+				"file_path": filePath,
+			}), nil
+	}
+
+	// Build input parameters
+	input := map[string]interface{}{
+		"prompt":      prompt,
+		"input_image": dataURL,
+	}
+
+	// Add aspect ratio (default to match_input_image)
+	aspectRatio := "match_input_image"
+	if ar, ok := params["aspect_ratio"].(string); ok && ar != "" {
+		aspectRatio = ar
+	}
+	input["aspect_ratio"] = aspectRatio
+
+	// Add output format
+	outputFormat := "png"
+	if of, ok := params["output_format"].(string); ok && of != "" {
+		outputFormat = of
+	}
+	input["output_format"] = outputFormat
+
+	// Add safety tolerance (max 2 for input images)
+	safetyTolerance := 2
+	if st, ok := params["safety_tolerance"].(float64); ok {
+		safetyTolerance = int(st)
+		if safetyTolerance > 2 {
+			safetyTolerance = 2
+			log.Printf("Safety tolerance capped at 2 (max for input images)")
+		}
+	}
+	input["safety_tolerance"] = safetyTolerance
+
+	// Add seed if provided
+	if seed, ok := params["seed"].(float64); ok {
+		input["seed"] = int(seed)
+	}
+
+	// Model-specific parameters with warnings
+	warnings := []string{}
+	
+	if model == "kontext-pro" || model == "kontext-max" {
+		// Pro/Max specific: prompt_upsampling
+		if pu, ok := params["prompt_upsampling"].(bool); ok {
+			input["prompt_upsampling"] = pu
+		}
+		
+		// Warn about Dev-only parameters if provided
+		if _, ok := params["go_fast"].(bool); ok {
+			warnings = append(warnings, "go_fast parameter only works with kontext-dev model")
+		}
+		if _, ok := params["guidance"].(float64); ok {
+			warnings = append(warnings, "guidance parameter only works with kontext-dev model")
+		}
+		if _, ok := params["num_inference_steps"].(float64); ok {
+			warnings = append(warnings, "num_inference_steps parameter only works with kontext-dev model")
+		}
+		if _, ok := params["output_quality"].(float64); ok {
+			warnings = append(warnings, "output_quality parameter only works with kontext-dev model")
+		}
+	} else if model == "kontext-dev" {
+		// Dev specific parameters
+		if gf, ok := params["go_fast"].(bool); ok {
+			input["go_fast"] = gf
+		}
+		if g, ok := params["guidance"].(float64); ok {
+			input["guidance"] = g
+		} else {
+			input["guidance"] = 2.5
+		}
+		if nis, ok := params["num_inference_steps"].(float64); ok {
+			input["num_inference_steps"] = int(nis)
+		} else {
+			input["num_inference_steps"] = 30
+		}
+		if oq, ok := params["output_quality"].(float64); ok {
+			input["output_quality"] = int(oq)
+		} else if outputFormat == "jpg" {
+			input["output_quality"] = 80
+		}
+		
+		// Warn about Pro/Max-only parameters if provided
+		if _, ok := params["prompt_upsampling"].(bool); ok {
+			warnings = append(warnings, "prompt_upsampling parameter only works with kontext-pro/max models")
+		}
+	}
+
+	// Generate unique ID for this operation
+	id, err := s.storage.GenerateID()
+	if err != nil {
+		return responses.BuildErrorResponse("edit_image", "storage_error",
+			fmt.Sprintf("Failed to generate ID: %v", err), nil), nil
+	}
+
+	// Save original image
+	originalPath := s.storage.GetImagePath(id, "original"+filepath.Ext(filePath))
+	if err := copyFile(filePath, originalPath); err != nil {
+		log.Printf("Failed to copy original: %v", err)
+	}
+
+	// Create prediction
+	startTime := time.Now()
+	log.Printf("Creating FLUX Kontext prediction with prompt: %s", prompt)
+	prediction, err := s.client.CreatePrediction(ctx, modelID, input)
+	if err != nil {
+		return responses.BuildErrorResponse("edit_image", "api_error",
+			fmt.Sprintf("Failed to create prediction: %v", err), map[string]interface{}{
+				"model": modelID,
+			}), nil
+	}
+	log.Printf("Prediction created: ID = %s", prediction.ID)
+
+	// Wait for completion (up to 30 seconds)
+	result, waitErr := s.client.WaitForCompletion(ctx, prediction.ID, s.config.OperationTimeout)
+
+	// Check if completed successfully
+	if waitErr == nil && result.Status == types.StatusSucceeded {
+		// Extract output URL
+		outputURL := extractOutputURL(result.Output)
+		if outputURL == "" {
+			return responses.BuildErrorResponse("edit_image", "processing_error",
+				"No output URL in prediction result", map[string]interface{}{
+					"prediction_id": prediction.ID,
+				}), nil
+		}
+
+		// Determine filename
+		filename := fmt.Sprintf("kontext_edited.%s", outputFormat)
+		if fn, ok := params["filename"].(string); ok && fn != "" {
+			filename = fn
+		}
+
+		// Save the edited image
+		imagePath, err := s.storage.SaveImage(id, outputURL, filename)
+		if err != nil {
+			return responses.BuildErrorResponse("edit_image", "save_failed",
+				fmt.Sprintf("Failed to save image: %v", err), map[string]interface{}{
+					"prediction_id": prediction.ID,
+					"url":           outputURL,
+				}), nil
+		}
+
+		// Save metadata
+		metadata := &types.ImageMetadata{
+			Version:   "1.0",
+			ID:        id,
+			Operation: "edit_image",
+			Timestamp: time.Now(),
+			Model:     modelID,
+			Parameters: map[string]interface{}{
+				"prompt":          prompt,
+				"model":           model,
+				"aspect_ratio":    aspectRatio,
+				"output_format":   outputFormat,
+				"safety_tolerance": safetyTolerance,
+			},
+			Result: &types.OperationResult{
+				Filename:       filepath.Base(imagePath),
+				GenerationTime: time.Since(startTime).Seconds(),
+				PredictionID:   prediction.ID,
+			},
+		}
+
+		if err := s.storage.SaveMetadata(id, metadata); err != nil {
+			log.Printf("Failed to save metadata: %v", err)
+		}
+
+		// Build success response
+		paths := map[string]string{
+			"file_path":     imagePath,
+			"original_path": originalPath,
+			"url":           outputURL,
+		}
+
+		modelInfo["id"] = modelID
+		modelInfo["type"] = model
+
+		parameters := map[string]interface{}{
+			"prompt":        prompt,
+			"aspect_ratio":  aspectRatio,
+			"output_format": outputFormat,
+		}
+
+		metrics := map[string]interface{}{
+			"generation_time": time.Since(startTime).Seconds(),
+			"file_size":       responses.GetFileSize(imagePath),
+		}
+
+		// Add warnings if any
+		response := responses.BuildSuccessResponse("edit_image", id, paths, modelInfo, parameters, metrics, prediction.ID)
+		if len(warnings) > 0 {
+			response = fmt.Sprintf("%s\n\nWarnings:\n", response)
+			for _, warning := range warnings {
+				response += fmt.Sprintf("- %s\n", warning)
+			}
+		}
+
+		return response, nil
+	}
+
+	// If timed out or still processing
+	if result != nil && (result.Status == types.StatusProcessing || result.Status == types.StatusStarting) {
+		// Save partial metadata with prediction ID
+		metadata := &types.ImageMetadata{
+			Version:   "1.0",
+			ID:        id,
+			Operation: "edit_image",
+			Timestamp: time.Now(),
+			Model:     modelID,
+			Parameters: map[string]interface{}{
+				"prompt":       prompt,
+				"model":        model,
+				"aspect_ratio": aspectRatio,
+			},
+			Result: &types.OperationResult{
+				PredictionID: prediction.ID,
+			},
+		}
+		s.storage.SaveMetadata(id, metadata)
+
+		// Build processing response
+		response := responses.BuildProcessingResponse("edit_image", prediction.ID, id, 30)
+		if len(warnings) > 0 {
+			response = fmt.Sprintf("%s\n\nWarnings:\n", response)
+			for _, warning := range warnings {
+				response += fmt.Sprintf("- %s\n", warning)
+			}
+		}
+		return response, nil
+	}
+
+	// If failed
+	if waitErr != nil {
+		details := map[string]interface{}{
+			"prediction_id": prediction.ID,
+			"storage_id":    id,
+			"model":         model,
+		}
+		return responses.BuildErrorResponse("edit_image", "generation_failed", waitErr.Error(), details), nil
+	}
+
+	details := map[string]interface{}{
+		"prediction_id": prediction.ID,
+		"status":        result.Status,
+	}
+	return responses.BuildErrorResponse("edit_image", "unexpected_status",
+		fmt.Sprintf("Unexpected prediction status: %s", result.Status), details), nil
 }
