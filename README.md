@@ -6,6 +6,7 @@ An MCP (Model Context Protocol) server that provides AI-powered image generation
 
 ### Currently Implemented
 - **Image Generation**: Generate AI images from text prompts using various models (Flux, SDXL, Ideogram, etc.)
+- **Visual Context Generation**: Generate consistent images using reference images with RunwayML Gen-4
 - **Image Editing**: Transform images using natural language instructions with FLUX Kontext (no masks needed)
 - **Face Enhancement**: Restore and enhance faces in photos
 - **Image Upscaling**: Increase resolution using AI super-resolution
@@ -91,16 +92,17 @@ Generate an AI image from a text prompt.
 
 **Parameters:**
 - `prompt` (required): Text description of the desired image
-- `model`: Model to use (flux-schnell, flux-pro, flux-dev, imagen-4, seedream-3, sdxl, ideogram-turbo)
-- `width`: Image width in pixels (default: 1024) - Note: imagen-4 uses aspect_ratio instead
-- `height`: Image height in pixels (default: 1024) - Note: imagen-4 uses aspect_ratio instead
-- `aspect_ratio`: Aspect ratio for imagen-4 only (1:1, 9:16, 16:9, 3:4, 4:3)
+- `model`: Model to use (flux-schnell, flux-pro, flux-dev, imagen-4, gen4-image, seedream-3, sdxl, ideogram-turbo)
+- `width`: Image width in pixels (default: 1024) - Note: imagen-4 and gen4-image use aspect_ratio instead
+- `height`: Image height in pixels (default: 1024) - Note: imagen-4 and gen4-image use aspect_ratio instead
+- `aspect_ratio`: Aspect ratio for imagen-4/gen4-image (1:1, 9:16, 16:9, 3:4, 4:3, 21:9 for gen4)
 - `safety_filter_level`: Safety filter for imagen-4 only (block_low_and_above, block_medium_and_above, block_only_high)
 - `output_format`: Output format for imagen-4 only (jpg, png)
+- `resolution`: Resolution for gen4-image only (720p, 1080p)
 - `filename`: Optional filename for the generated image
 - `seed`: Seed for reproducible generation
-- `guidance_scale`: How closely to follow the prompt (1-20, default: 7.5) - Not supported by imagen-4
-- `negative_prompt`: What to avoid in the image - Not supported by imagen-4
+- `guidance_scale`: How closely to follow the prompt (1-20, default: 7.5) - Not supported by imagen-4/gen4-image
+- `negative_prompt`: What to avoid in the image - Not supported by imagen-4/gen4-image
 
 **Example (Standard models):**
 ```json
@@ -122,6 +124,35 @@ Generate an AI image from a text prompt.
   "output_format": "jpg"
 }
 ```
+
+### generate_with_visual_context
+Generate images using RunwayML Gen-4 with visual reference images. This tool excels at maintaining visual consistency of people, objects, and locations across different scenes.
+
+**Parameters:**
+- `prompt` (required): Text using @tag to reference images (e.g., "@person in @location")
+- `reference_images` (required): Array of 1-3 local file paths to reference images
+- `reference_tags` (required): Array of tags (3-15 chars) matching reference_images count
+- `aspect_ratio`: Output dimensions (16:9, 9:16, 4:3, 3:4, 1:1, 21:9) - default: 16:9
+- `resolution`: Output quality (720p, 1080p) - default: 1080p
+- `filename`: Optional output filename
+- `seed`: Seed for reproducible generation
+
+**Example:**
+```json
+{
+  "prompt": "@woman and @robot are lounging on the sofa in @living_room, evening with low light",
+  "reference_images": ["/path/to/woman.jpg", "/path/to/robot.jpg", "/path/to/room.jpg"],
+  "reference_tags": ["woman", "robot", "living_room"],
+  "aspect_ratio": "16:9",
+  "resolution": "1080p"
+}
+```
+
+**Use Cases:**
+- Keep a person's appearance consistent across different images
+- Place specific products in new settings
+- Combine elements from multiple reference images
+- Create variations while preserving visual identity
 
 ### continue_operation
 Continue waiting for an in-progress operation.
@@ -188,6 +219,7 @@ REPLICATE_IMAGES_ROOT_FOLDER/
 - **flux-pro**: Best quality, slower
 - **flux-dev**: Development version
 - **imagen-4**: Google's photorealistic model with superior text rendering and fine details
+- **gen4-image**: RunwayML Gen-4 for consistent characters (use generate_with_visual_context for reference images)
 - **seedream-3**: State-of-the-art quality
 - **sdxl**: Stable Diffusion XL
 - **ideogram-turbo**: Best for text in images

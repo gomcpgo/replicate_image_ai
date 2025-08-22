@@ -69,8 +69,8 @@ func (s *ReplicateImageMCPServer) ListTools(ctx context.Context) (*protocol.List
 					},
 					"model": {
 						"type": "string",
-						"description": "Model to use. Choose based on your needs:\n- flux-schnell: Fast, general purpose (default)\n- flux-pro: Premium artistic quality\n- flux-dev: Development version\n- imagen-4: Google's photorealistic model, best for lifelike images, superior text rendering\n- seedream-3: High quality artistic/stylized\n- sdxl: Versatile, good balance\n- ideogram-turbo: Best for images with text/logos",
-						"enum": ["flux-schnell", "flux-pro", "flux-dev", "imagen-4", "seedream-3", "sdxl", "ideogram-turbo"],
+						"description": "Model to use. Choose based on your needs:\n- flux-schnell: Fast, general purpose (default)\n- flux-pro: Premium artistic quality\n- flux-dev: Development version\n- imagen-4: Google's photorealistic model, best for lifelike images, superior text rendering\n- gen4-image: RunwayML Gen-4 for consistent characters (use generate_with_visual_context for reference images)\n- seedream-3: High quality artistic/stylized\n- sdxl: Versatile, good balance\n- ideogram-turbo: Best for images with text/logos",
+						"enum": ["flux-schnell", "flux-pro", "flux-dev", "imagen-4", "gen4-image", "seedream-3", "sdxl", "ideogram-turbo"],
 						"default": "flux-schnell"
 					},
 					"width": {
@@ -119,6 +119,68 @@ func (s *ReplicateImageMCPServer) ListTools(ctx context.Context) (*protocol.List
 					}
 				},
 				"required": ["prompt"]
+			}`),
+		},
+		{
+			Name:        "generate_with_visual_context",
+			Description: `Generate images using RunwayML Gen-4 with visual reference images. This tool excels at maintaining visual consistency of people, objects, and locations across different scenes.
+
+Use this when you need to:
+- Keep a person's appearance consistent across different images
+- Place specific products or objects in new settings
+- Combine elements from multiple reference images
+- Create variations while preserving visual identity
+
+How it works: Provide 1-3 reference images with tags, then use @tag in your prompt to reference them.
+
+Examples:
+- "@woman and @robot are lounging on the sofa in @living_room, it is evening and low light"
+- "@woman holds the @bottle up, the bottle is the subject, @woman is visible but blurred, product photo shoot"
+- "close up portrait of @woman and @man standing in @park, hands in pockets, looking cool"
+- "@product placed on marble surface with dramatic lighting, luxury advertisement style"
+
+The model preserves visual characteristics from your reference images while following your text instructions for composition, lighting, and context.`,
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"prompt": {
+						"type": "string",
+						"description": "Describe the desired image using @tag to reference your images. Examples: '@woman sitting in @cafe', '@product on beach at sunset', '@person1 and @person2 shaking hands in @office'"
+					},
+					"reference_images": {
+						"type": "array",
+						"description": "Local file paths to 1-3 reference images that provide visual elements to preserve",
+						"items": {"type": "string"},
+						"minItems": 1,
+						"maxItems": 3
+					},
+					"reference_tags": {
+						"type": "array",
+						"description": "Tags for each reference image (3-15 alphanumeric chars). Use descriptive names like 'woman', 'robot', 'bottle', 'office' rather than generic 'img1', 'obj2'. Must match reference_images count.",
+						"items": {"type": "string", "pattern": "^[a-zA-Z0-9]{3,15}$"}
+					},
+					"aspect_ratio": {
+						"type": "string",
+						"description": "Output image dimensions",
+						"enum": ["16:9", "9:16", "4:3", "3:4", "1:1", "21:9"],
+						"default": "16:9"
+					},
+					"resolution": {
+						"type": "string",
+						"description": "Output quality - 1080p for high quality, 720p for faster generation",
+						"enum": ["1080p", "720p"],
+						"default": "1080p"
+					},
+					"filename": {
+						"type": "string",
+						"description": "Optional output filename"
+					},
+					"seed": {
+						"type": "integer",
+						"description": "Seed for reproducible generation"
+					}
+				},
+				"required": ["prompt", "reference_images", "reference_tags"]
 			}`),
 		},
 		{
@@ -396,6 +458,24 @@ func (s *ReplicateImageMCPServer) CallTool(ctx context.Context, req *protocol.Ca
 			}},
 		}, nil
 
+	case "generate_with_visual_context":
+		result, err := s.generateWithVisualContext(ctx, req.Arguments)
+		if err != nil {
+			return &protocol.CallToolResponse{
+				Content: []protocol.ToolContent{{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %v", err),
+				}},
+				IsError: true,
+			}, nil
+		}
+		return &protocol.CallToolResponse{
+			Content: []protocol.ToolContent{{
+				Type: "text",
+				Text: result,
+			}},
+		}, nil
+
 	case "continue_operation":
 		result, err := s.continueOperation(ctx, req.Arguments)
 		if err != nil {
@@ -581,6 +661,8 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 		modelID = types.ModelFluxDev
 	case "imagen-4":
 		modelID = types.ModelImagen4
+	case "gen4-image":
+		modelID = types.ModelGen4Image
 	case "seedream-3", "seedream":
 		modelID = types.ModelSeedream3
 	case "sdxl":
@@ -605,7 +687,7 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 		"prompt": prompt,
 	}
 
-	// Special handling for Imagen-4
+	// Special handling for Imagen-4 and Gen-4
 	if model == "imagen-4" {
 		// Imagen-4 uses aspect_ratio instead of width/height
 		aspectRatio := "1:1"  // Default
@@ -648,6 +730,42 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 
 		log.Printf("Imagen-4 parameters: aspect_ratio=%s, safety_filter=%s, format=%s", 
 			input["aspect_ratio"], input["safety_filter_level"], input["output_format"])
+	} else if model == "gen4-image" {
+		// Gen-4 Image uses aspect_ratio and resolution
+		aspectRatio := "16:9"  // Default
+		if ar, ok := params["aspect_ratio"].(string); ok && ar != "" {
+			aspectRatio = ar
+		} else {
+			// Try to infer aspect ratio from width/height if provided
+			width, hasWidth := params["width"].(float64)
+			height, hasHeight := params["height"].(float64)
+			if hasWidth && hasHeight {
+				ratio := width / height
+				if ratio > 1.7 { // ~16:9
+					aspectRatio = "16:9"
+				} else if ratio < 0.6 { // ~9:16
+					aspectRatio = "9:16"
+				} else if ratio > 1.2 && ratio < 1.4 { // ~4:3
+					aspectRatio = "4:3"
+				} else if ratio > 0.7 && ratio < 0.8 { // ~3:4
+					aspectRatio = "3:4"
+				} else if ratio > 2.0 { // ~21:9
+					aspectRatio = "21:9"
+				} else {
+					aspectRatio = "1:1"
+				}
+			}
+		}
+		input["aspect_ratio"] = aspectRatio
+		
+		// Resolution
+		resolution := "1080p"
+		if res, ok := params["resolution"].(string); ok && res != "" {
+			resolution = res
+		}
+		input["resolution"] = resolution
+		
+		log.Printf("Gen-4 parameters: aspect_ratio=%s, resolution=%s", aspectRatio, resolution)
 	} else {
 		// Standard models use width/height
 		if width, ok := params["width"].(float64); ok {
@@ -669,8 +787,8 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 	}
 
 	// Model-specific parameters
-	if model == "imagen-4" {
-		// Imagen-4 doesn't support guidance_scale or negative_prompt
+	if model == "imagen-4" || model == "gen4-image" {
+		// Imagen-4 and Gen-4 don't support guidance_scale or negative_prompt
 		// Parameters already set above
 	} else if model == "sdxl" || model == "seedream-3" {
 		if guidanceScale, ok := params["guidance_scale"].(float64); ok {
@@ -786,6 +904,28 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 			default: // "1:1"
 				resultObj.Width, resultObj.Height = 1024, 1024
 			}
+		} else if model == "gen4-image" {
+			metadataParams["aspect_ratio"] = input["aspect_ratio"]
+			metadataParams["resolution"] = input["resolution"]
+			// Gen-4 resolution dimensions
+			width, height := 1920, 1080 // Default for 1080p 16:9
+			if input["resolution"] == "720p" {
+				width, height = 1280, 720
+			}
+			// Adjust for aspect ratio
+			switch input["aspect_ratio"] {
+			case "9:16":
+				width, height = height*9/16, height
+			case "4:3":
+				width, height = height*4/3, height
+			case "3:4":
+				width, height = height*3/4, height
+			case "1:1":
+				width, height = height, height
+			case "21:9":
+				width, height = height*21/9, height
+			}
+			resultObj.Width, resultObj.Height = width, height
 		} else {
 			metadataParams["width"] = input["width"]
 			metadataParams["height"] = input["height"]
@@ -837,6 +977,9 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 			parameters["aspect_ratio"] = input["aspect_ratio"]
 			parameters["safety_filter_level"] = input["safety_filter_level"]
 			parameters["output_format"] = input["output_format"]
+		} else if model == "gen4-image" {
+			parameters["aspect_ratio"] = input["aspect_ratio"]
+			parameters["resolution"] = input["resolution"]
 		} else {
 			parameters["width"] = input["width"]
 			parameters["height"] = input["height"]
@@ -867,6 +1010,9 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 			partialParams["aspect_ratio"] = input["aspect_ratio"]
 			partialParams["safety_filter_level"] = input["safety_filter_level"]
 			partialParams["output_format"] = input["output_format"]
+		} else if model == "gen4-image" {
+			partialParams["aspect_ratio"] = input["aspect_ratio"]
+			partialParams["resolution"] = input["resolution"]
 		} else {
 			partialParams["width"] = input["width"]
 			partialParams["height"] = input["height"]
@@ -905,6 +1051,289 @@ func (s *ReplicateImageMCPServer) generateImage(ctx context.Context, params map[
 		"status":        result.Status,
 	}
 	return responses.BuildErrorResponse("generate_image", "unexpected_status", fmt.Sprintf("Unexpected prediction status: %s", result.Status), details), nil
+}
+
+// generateWithVisualContext handles the generate_with_visual_context tool for RunwayML Gen-4
+func (s *ReplicateImageMCPServer) generateWithVisualContext(ctx context.Context, params map[string]interface{}) (string, error) {
+	// Parse parameters
+	prompt, ok := params["prompt"].(string)
+	if !ok || prompt == "" {
+		return responses.BuildErrorResponse("generate_with_visual_context", "invalid_parameters", "prompt parameter is required", nil), nil
+	}
+
+	// Get reference images
+	referenceImagesRaw, ok := params["reference_images"].([]interface{})
+	if !ok || len(referenceImagesRaw) == 0 {
+		return responses.BuildErrorResponse("generate_with_visual_context", "invalid_parameters", "reference_images parameter is required (1-3 images)", nil), nil
+	}
+
+	// Convert to string array
+	referenceImages := make([]string, 0, len(referenceImagesRaw))
+	for _, img := range referenceImagesRaw {
+		if imgStr, ok := img.(string); ok {
+			referenceImages = append(referenceImages, imgStr)
+		}
+	}
+
+	if len(referenceImages) == 0 || len(referenceImages) > 3 {
+		return responses.BuildErrorResponse("generate_with_visual_context", "invalid_parameters", "reference_images must contain 1-3 image paths", nil), nil
+	}
+
+	// Get reference tags
+	referenceTagsRaw, ok := params["reference_tags"].([]interface{})
+	if !ok || len(referenceTagsRaw) != len(referenceImages) {
+		return responses.BuildErrorResponse("generate_with_visual_context", "invalid_parameters", "reference_tags must match the number of reference_images", nil), nil
+	}
+
+	// Convert to string array and validate
+	referenceTags := make([]string, 0, len(referenceTagsRaw))
+	for i, tag := range referenceTagsRaw {
+		tagStr, ok := tag.(string)
+		if !ok {
+			return responses.BuildErrorResponse("generate_with_visual_context", "invalid_parameters", fmt.Sprintf("reference_tag at index %d must be a string", i), nil), nil
+		}
+		// Validate tag format (3-15 alphanumeric characters)
+		if len(tagStr) < 3 || len(tagStr) > 15 {
+			return responses.BuildErrorResponse("generate_with_visual_context", "invalid_parameters", fmt.Sprintf("reference_tag '%s' must be 3-15 characters", tagStr), nil), nil
+		}
+		for _, ch := range tagStr {
+			if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+				return responses.BuildErrorResponse("generate_with_visual_context", "invalid_parameters", fmt.Sprintf("reference_tag '%s' must contain only alphanumeric characters", tagStr), nil), nil
+			}
+		}
+		referenceTags = append(referenceTags, tagStr)
+	}
+
+	// Convert local file paths to data URLs
+	imageURLs := make([]string, 0, len(referenceImages))
+	for i, imagePath := range referenceImages {
+		// Check if file exists
+		if _, err := os.Stat(imagePath); os.IsNotExist(err) {
+			return responses.BuildErrorResponse("generate_with_visual_context", "file_not_found", fmt.Sprintf("reference image not found: %s", imagePath), nil), nil
+		}
+
+		// Convert to data URL
+		dataURL, err := s.storage.FileToDataURL(imagePath)
+		if err != nil {
+			return responses.BuildErrorResponse("generate_with_visual_context", "file_error", fmt.Sprintf("failed to read reference image %d: %v", i+1, err), nil), nil
+		}
+		imageURLs = append(imageURLs, dataURL)
+	}
+
+	// Get optional parameters
+	aspectRatio := "16:9"
+	if ar, ok := params["aspect_ratio"].(string); ok && ar != "" {
+		aspectRatio = ar
+	}
+
+	resolution := "1080p"
+	if res, ok := params["resolution"].(string); ok && res != "" {
+		resolution = res
+	}
+
+	// Build input parameters for Gen-4
+	input := map[string]interface{}{
+		"prompt":           prompt,
+		"reference_images": imageURLs,
+		"reference_tags":   referenceTags,
+		"aspect_ratio":     aspectRatio,
+		"resolution":       resolution,
+	}
+
+	// Add seed if provided
+	if seed, ok := params["seed"].(float64); ok {
+		input["seed"] = int(seed)
+	}
+
+	// Get filename if provided
+	filename, _ := params["filename"].(string)
+
+	// Generate unique ID for this operation
+	id, err := s.storage.GenerateID()
+	if err != nil {
+		return responses.BuildErrorResponse("generate_with_visual_context", "internal_error", fmt.Sprintf("failed to generate ID: %v", err), nil), nil
+	}
+
+	// Create prediction with Gen-4 model
+	modelID := types.ModelGen4Image
+	startTime := time.Now()
+	
+	if s.config.DebugMode {
+		log.Printf("Creating Gen-4 prediction with %d reference images and tags: %v", len(imageURLs), referenceTags)
+	}
+
+	prediction, err := s.client.CreatePrediction(ctx, modelID, input)
+	if err != nil {
+		details := map[string]interface{}{
+			"model": modelID,
+			"tags":  referenceTags,
+		}
+		return responses.BuildErrorResponse("generate_with_visual_context", "api_error", fmt.Sprintf("failed to create prediction: %v", err), details), nil
+	}
+
+	// Wait for completion (up to 30 seconds)
+	result, waitErr := s.client.WaitForCompletion(ctx, prediction.ID, s.config.OperationTimeout)
+	
+	// Check if completed successfully
+	if waitErr == nil && result.Status == types.StatusSucceeded {
+		// Extract output URL
+		outputURL := ""
+		switch output := result.Output.(type) {
+		case string:
+			outputURL = output
+		case []interface{}:
+			if len(output) > 0 {
+				if url, ok := output[0].(string); ok {
+					outputURL = url
+				}
+			}
+		}
+
+		if outputURL == "" {
+			details := map[string]interface{}{
+				"prediction_id": prediction.ID,
+				"output":        result.Output,
+			}
+			return responses.BuildErrorResponse("generate_with_visual_context", "no_output", "no output URL in prediction result", details), nil
+		}
+
+		// Save the generated image
+		imagePath, err := s.storage.SaveImage(id, outputURL, filename)
+		if err != nil {
+			details := map[string]interface{}{
+				"prediction_id": prediction.ID,
+				"url":           outputURL,
+			}
+			return responses.BuildErrorResponse("generate_with_visual_context", "save_failed", fmt.Sprintf("failed to save image: %v", err), details), nil
+		}
+
+		// Save metadata
+		metadataParams := map[string]interface{}{
+			"prompt":           prompt,
+			"reference_images": referenceImages,
+			"reference_tags":   referenceTags,
+			"aspect_ratio":     aspectRatio,
+			"resolution":       resolution,
+		}
+		
+		// Estimate dimensions based on aspect ratio and resolution
+		width, height := 1920, 1080 // Default for 1080p 16:9
+		if resolution == "720p" {
+			width, height = 1280, 720
+		}
+		
+		// Adjust for aspect ratio
+		switch aspectRatio {
+		case "9:16":
+			width, height = height*9/16, height
+		case "4:3":
+			width, height = height*4/3, height
+		case "3:4":
+			width, height = height*3/4, height
+		case "1:1":
+			width, height = height, height
+		case "21:9":
+			width, height = height*21/9, height
+		}
+		
+		resultObj := &types.OperationResult{
+			Filename:       filepath.Base(imagePath),
+			GenerationTime: time.Since(startTime).Seconds(),
+			PredictionID:   prediction.ID,
+			Width:          width,
+			Height:         height,
+		}
+		
+		metadata := &types.ImageMetadata{
+			Version:    "1.0",
+			ID:         id,
+			Operation:  "generate_with_visual_context",
+			Timestamp:  time.Now(),
+			Model:      modelID,
+			Parameters: metadataParams,
+			Result:     resultObj,
+		}
+
+		if err := s.storage.SaveMetadata(id, metadata); err != nil {
+			// Log error but don't fail
+			if s.config.DebugMode {
+				log.Printf("Failed to save metadata: %v", err)
+			}
+		}
+
+		// Build success response
+		paths := map[string]string{
+			"file_path": imagePath,
+			"url":       outputURL,
+		}
+		
+		modelInfo := map[string]string{
+			"id":   modelID,
+			"name": "RunwayML Gen-4 Image",
+			"type": "gen4-image",
+		}
+		
+		parameters := map[string]interface{}{
+			"prompt":           prompt,
+			"reference_count":  len(referenceImages),
+			"reference_tags":   referenceTags,
+			"aspect_ratio":     aspectRatio,
+			"resolution":       resolution,
+		}
+		if seed, ok := input["seed"]; ok {
+			parameters["seed"] = seed
+		}
+		
+		metrics := map[string]interface{}{
+			"generation_time": time.Since(startTime).Seconds(),
+			"file_size":       responses.GetFileSize(imagePath),
+		}
+		
+		return responses.BuildSuccessResponse("generate_with_visual_context", id, paths, modelInfo, parameters, metrics, prediction.ID), nil
+	}
+
+	// If timed out or still processing
+	if result != nil && (result.Status == types.StatusProcessing || result.Status == types.StatusStarting) {
+		// Save partial metadata
+		partialParams := map[string]interface{}{
+			"prompt":           prompt,
+			"reference_images": referenceImages,
+			"reference_tags":   referenceTags,
+			"aspect_ratio":     aspectRatio,
+			"resolution":       resolution,
+		}
+		
+		metadata := &types.ImageMetadata{
+			Version:    "1.0",
+			ID:         id,
+			Operation:  "generate_with_visual_context",
+			Timestamp:  time.Now(),
+			Model:      modelID,
+			Parameters: partialParams,
+			Result: &types.OperationResult{
+				PredictionID: prediction.ID,
+			},
+		}
+		s.storage.SaveMetadata(id, metadata)
+
+		// Build processing response
+		return responses.BuildProcessingResponse("generate_with_visual_context", prediction.ID, id, 30), nil
+	}
+
+	// If failed
+	if waitErr != nil {
+		details := map[string]interface{}{
+			"prediction_id": prediction.ID,
+			"storage_id":    id,
+		}
+		return responses.BuildErrorResponse("generate_with_visual_context", "generation_failed", waitErr.Error(), details), nil
+	}
+
+	details := map[string]interface{}{
+		"prediction_id": prediction.ID,
+		"status":        result.Status,
+	}
+	return responses.BuildErrorResponse("generate_with_visual_context", "unexpected_status", fmt.Sprintf("Unexpected prediction status: %s", result.Status), details), nil
 }
 
 // continueOperation handles the continue_operation tool
@@ -1233,6 +1662,14 @@ func main() {
 	flag.BoolVar(&imagen4Flag, "imagen4", false, "Test Google Imagen-4 photorealistic generation")
 	flag.StringVar(&aspectRatio, "aspect", "16:9", "Aspect ratio for Imagen-4 (1:1, 9:16, 16:9, 3:4, 4:3)")
 	flag.StringVar(&safetyFilter, "safety", "block_only_high", "Safety filter for Imagen-4 (block_low_and_above, block_medium_and_above, block_only_high)")
+	// Gen-4 flags
+	var gen4Flag bool
+	var refImages, refTags string
+	var gen4Resolution string
+	flag.BoolVar(&gen4Flag, "gen4", false, "Test RunwayML Gen-4 with reference images")
+	flag.StringVar(&refImages, "ref-images", "", "Comma-separated paths to reference images (1-3)")
+	flag.StringVar(&refTags, "ref-tags", "", "Comma-separated tags for reference images")
+	flag.StringVar(&gen4Resolution, "resolution", "1080p", "Resolution for Gen-4 (720p, 1080p)")
 	flag.Parse()
 	
 	if versionFlag {
@@ -1320,6 +1757,115 @@ func main() {
 			}
 		}
 		
+		return
+	}
+	
+	// Handle Gen-4 testing with reference images
+	if gen4Flag {
+		// Validate parameters
+		if refImages == "" || refTags == "" {
+			fmt.Println("Error: -ref-images and -ref-tags are required for Gen-4 testing")
+			fmt.Println("Example: -gen4 -ref-images 'person.jpg,product.jpg' -ref-tags 'person,product' -p '@person holding @product'")
+			os.Exit(1)
+		}
+		
+		// Parse reference images and tags
+		imagePaths := strings.Split(refImages, ",")
+		tags := strings.Split(refTags, ",")
+		
+		if len(imagePaths) != len(tags) {
+			fmt.Printf("Error: Number of reference images (%d) must match number of tags (%d)\n", len(imagePaths), len(tags))
+			os.Exit(1)
+		}
+		
+		if len(imagePaths) < 1 || len(imagePaths) > 3 {
+			fmt.Println("Error: Must provide 1-3 reference images")
+			os.Exit(1)
+		}
+		
+		// Create server instance
+		server, err := NewReplicateImageMCPServer()
+		if err != nil {
+			log.Fatalf("Failed to create server: %v", err)
+		}
+		
+		ctx := context.Background()
+		
+		// Use custom prompt or default for Gen-4
+		testPrompt := prompt
+		if prompt == defaultTestPrompt {
+			// Build a default prompt using the tags
+			if len(tags) > 0 {
+				testPrompt = fmt.Sprintf("@%s in a modern office setting with natural lighting", tags[0])
+			}
+		}
+		
+		fmt.Println("\n=== Testing RunwayML Gen-4 with Reference Images ===")
+		fmt.Printf("Prompt: %s\n", testPrompt)
+		fmt.Printf("Reference Images: %v\n", imagePaths)
+		fmt.Printf("Reference Tags: %v\n", tags)
+		fmt.Printf("Aspect Ratio: %s\n", aspectRatio)
+		fmt.Printf("Resolution: %s\n", gen4Resolution)
+		fmt.Println("---")
+		
+		startTime := time.Now()
+		
+		// Convert arrays to interface{} slices
+		refImagesInterface := make([]interface{}, len(imagePaths))
+		for i, img := range imagePaths {
+			refImagesInterface[i] = strings.TrimSpace(img)
+		}
+		refTagsInterface := make([]interface{}, len(tags))
+		for i, tag := range tags {
+			refTagsInterface[i] = strings.TrimSpace(tag)
+		}
+		
+		// Call generateWithVisualContext
+		result, err := server.generateWithVisualContext(ctx, map[string]interface{}{
+			"prompt":           testPrompt,
+			"reference_images": refImagesInterface,
+			"reference_tags":   refTagsInterface,
+			"aspect_ratio":     aspectRatio,
+			"resolution":       gen4Resolution,
+		})
+		
+		if err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+			os.Exit(1)
+		}
+		
+		fmt.Printf("Result:\n%s\n", result)
+		
+		// Check if we need to continue operation
+		if strings.Contains(result, "prediction_id:") && strings.Contains(result, "PROCESSING") {
+			// Extract prediction ID from result
+			lines := strings.Split(result, "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "prediction_id:") {
+					parts := strings.Split(line, ":")
+					if len(parts) >= 2 {
+						predictionID := strings.TrimSpace(parts[1])
+						fmt.Printf("\nContinuing operation for prediction_id: %s\n", predictionID)
+						
+						// Wait for completion
+						continueResult, err := server.continueOperation(ctx, map[string]interface{}{
+							"prediction_id": predictionID,
+							"wait_time":     30.0,
+						})
+						
+						if err != nil {
+							fmt.Printf("❌ Continue error: %v\n", err)
+							os.Exit(1)
+						}
+						
+						fmt.Printf("Final Result:\n%s\n", continueResult)
+						break
+					}
+				}
+			}
+		}
+		
+		fmt.Printf("\n✅ Operation completed in %.2f seconds\n", time.Since(startTime).Seconds())
 		return
 	}
 	
