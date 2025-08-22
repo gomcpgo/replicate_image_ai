@@ -6,15 +6,17 @@ An MCP (Model Context Protocol) server that provides AI-powered image generation
 
 ### Currently Implemented
 - **Image Generation**: Generate AI images from text prompts using various models (Flux, SDXL, Ideogram, etc.)
+- **FLUX Kontext Editing**: Transform images using natural language instructions without masks
+- **Face Enhancement**: Restore and enhance faces in photos
+- **Image Upscaling**: Increase resolution using AI super-resolution
+- **Background Removal**: Remove or replace backgrounds
+- **Image Editing**: AI-powered inpainting and editing with masks
+- **Photo Restoration**: Restore old or damaged photos
 - **Continuation Pattern**: Handle long-running operations with a 30-second timeout and continuation mechanism
 - **Local Storage**: All images are stored locally with metadata in YAML format
 - **Image Management**: List and retrieve generated images with full metadata
 
 ### Coming Soon
-- **Face Enhancement**: Restore and enhance faces in photos
-- **Image Upscaling**: Increase resolution using AI super-resolution
-- **Background Removal**: Remove or replace backgrounds
-- **Image Editing**: AI-powered inpainting and editing
 - **Batch Processing**: Process multiple images sequentially
 
 ## Prerequisites
@@ -128,6 +130,31 @@ Get details about a specific image.
 
 **Returns:** Full image details including metadata and file path.
 
+### kontext_edit_image
+Edit images using natural language instructions with FLUX Kontext models.
+
+**Parameters:**
+- `file_path` (required): Path to the local image file to edit
+- `prompt` (required): Text instruction describing the desired changes
+- `model`: Model variant - "kontext-pro" (recommended), "kontext-max" (highest quality), "kontext-dev" (advanced)
+- `aspect_ratio`: Output aspect ratio (default: "match_input_image")
+- `prompt_upsampling`: Auto-enhance prompt for better results (Pro/Max only)
+- `safety_tolerance`: Content filter level 0-2 (default: 2)
+- `output_format`: "png", "jpg", or "webp" (default: "png")
+- `go_fast`: Speed up generation (Dev model only)
+- `guidance`: Guidance strength 0-10 (Dev model only, default: 2.5)
+- `num_inference_steps`: Number of steps 1-50 (Dev model only, default: 30)
+- `seed`: Seed for reproducible generation
+- `filename`: Optional output filename
+
+**Example Prompts:**
+- "Make it a 90s cartoon"
+- "Change the car to red"
+- "Make it nighttime with rain"
+- "Convert to oil painting style"
+- "Add sunglasses to the person"
+- "Make the text 3D and glowing"
+
 ## Storage Structure
 
 Images are stored in the following structure:
@@ -150,6 +177,11 @@ REPLICATE_IMAGES_ROOT_FOLDER/
 - **seedream-3**: State-of-the-art quality
 - **sdxl**: Stable Diffusion XL
 - **ideogram-turbo**: Best for text in images
+
+### FLUX Kontext Models (Text-based Image Editing)
+- **kontext-pro**: Balanced speed and quality (recommended default)
+- **kontext-max**: Highest quality, premium tier (higher cost)
+- **kontext-dev**: Advanced controls with more parameters
 
 ## Development
 

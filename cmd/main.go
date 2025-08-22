@@ -322,6 +322,81 @@ func (s *ReplicateImageMCPServer) ListTools(ctx context.Context) (*protocol.List
 				"required": ["file_path", "edit_prompt"]
 			}`),
 		},
+		{
+			Name:        "kontext_edit_image",
+			Description: "Edit images using natural language instructions with FLUX Kontext. Transform entire images without masks. Examples: 'Make it a 90s cartoon', 'Change the car to red', 'Make it nighttime with rain', 'Convert to oil painting style', 'Add sunglasses to the person', 'Make the text 3D and glowing'.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file_path": {
+						"type": "string",
+						"description": "Path to the local image file to edit"
+					},
+					"prompt": {
+						"type": "string",
+						"description": "Text instruction describing the desired changes. Be specific and clear."
+					},
+					"model": {
+						"type": "string",
+						"description": "Model variant: kontext-pro (recommended, balanced), kontext-max (highest quality, premium cost), kontext-dev (advanced controls)",
+						"enum": ["kontext-pro", "kontext-max", "kontext-dev"],
+						"default": "kontext-pro"
+					},
+					"aspect_ratio": {
+						"type": "string",
+						"description": "Output aspect ratio. Options: match_input_image (default), 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3",
+						"default": "match_input_image"
+					},
+					"prompt_upsampling": {
+						"type": "boolean",
+						"description": "Automatically enhance prompt for better results (Pro/Max only)",
+						"default": false
+					},
+					"safety_tolerance": {
+						"type": "integer",
+						"description": "Content filter level: 0 (strictest) to 6 (most permissive). Max 2 with input images.",
+						"minimum": 0,
+						"maximum": 2,
+						"default": 2
+					},
+					"output_format": {
+						"type": "string",
+						"description": "Output format: png, jpg, or webp",
+						"enum": ["png", "jpg", "webp"],
+						"default": "png"
+					},
+					"go_fast": {
+						"type": "boolean",
+						"description": "Speed up generation (Dev model only)",
+						"default": false
+					},
+					"guidance": {
+						"type": "number",
+						"description": "Guidance strength 0-10 (Dev model only, default 2.5)",
+						"default": 2.5
+					},
+					"num_inference_steps": {
+						"type": "integer",
+						"description": "Number of steps 1-50 (Dev model only, default 30)",
+						"default": 30
+					},
+					"output_quality": {
+						"type": "integer",
+						"description": "JPEG quality 1-100 (Dev model only, default 80)",
+						"default": 80
+					},
+					"seed": {
+						"type": "integer",
+						"description": "Seed for reproducible generation"
+					},
+					"filename": {
+						"type": "string",
+						"description": "Optional output filename"
+					}
+				},
+				"required": ["file_path", "prompt"]
+			}`),
+		},
 	}
 
 	return &protocol.ListToolsResponse{Tools: tools}, nil
@@ -476,6 +551,24 @@ func (s *ReplicateImageMCPServer) CallTool(ctx context.Context, req *protocol.Ca
 
 	case "edit_image":
 		result, err := s.editImage(ctx, req.Arguments)
+		if err != nil {
+			return &protocol.CallToolResponse{
+				Content: []protocol.ToolContent{{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %v", err),
+				}},
+				IsError: true,
+			}, nil
+		}
+		return &protocol.CallToolResponse{
+			Content: []protocol.ToolContent{{
+				Type: "text",
+				Text: result,
+			}},
+		}, nil
+
+	case "kontext_edit_image":
+		result, err := s.kontextEditImage(ctx, req.Arguments)
 		if err != nil {
 			return &protocol.CallToolResponse{
 				Content: []protocol.ToolContent{{
@@ -935,7 +1028,13 @@ func listAvailableModels() {
 	fmt.Println("  ideogram        - Text in images")
 	fmt.Println("  recraft         - Raster images")
 	fmt.Println("  recraft-svg     - SVG generation")
-	fmt.Println("\nUsage: ./replicate_image_ai -g <model> [-p \"custom prompt\"]")
+	fmt.Println("\nFLUX Kontext Models (Text-based Image Editing):")
+	fmt.Println("  kontext-pro     - Balanced speed/quality (recommended)")
+	fmt.Println("  kontext-max     - Highest quality, premium tier")
+	fmt.Println("  kontext-dev     - Advanced controls, more parameters")
+	fmt.Println("\nUsage:")
+	fmt.Println("  Generation: ./replicate_image_ai -g <model> [-p \"custom prompt\"]")
+	fmt.Println("  Kontext Edit: ./replicate_image_ai -kontext <pro|max|dev> -input image.jpg [-kprompt \"edit prompt\"]")
 }
 
 func testSingleModel(server *ReplicateImageMCPServer, model, prompt string) error {
@@ -1052,6 +1151,9 @@ func main() {
 		inputImage       string
 		enhanceModel     string
 		outputFile       string
+		// FLUX Kontext testing flags
+		kontextModel     string
+		kontextPrompt    string
 	)
 	
 	flag.StringVar(&generateModel, "g", "", "Generate an image using specified model (e.g., -g flux-schnell)")
@@ -1065,6 +1167,9 @@ func main() {
 	flag.StringVar(&inputImage, "input", "", "Input image path for enhancement tests")
 	flag.StringVar(&enhanceModel, "model", "", "Model to use for enhancement (e.g., gfpgan, codeformer)")
 	flag.StringVar(&outputFile, "output", "", "Output filename for enhanced image")
+	// FLUX Kontext flags
+	flag.StringVar(&kontextModel, "kontext", "", "Test FLUX Kontext editing: pro, max, or dev")
+	flag.StringVar(&kontextPrompt, "kprompt", "", "Prompt for Kontext editing (use with -kontext and -input)")
 	flag.Parse()
 	
 	if versionFlag {
@@ -1077,6 +1182,107 @@ func main() {
 	// Handle command-line testing options
 	if listModels {
 		listAvailableModels()
+		return
+	}
+	
+	// Handle FLUX Kontext testing
+	if kontextModel != "" {
+		if inputImage == "" {
+			fmt.Println("Error: -input flag is required when using -kontext")
+			fmt.Println("Usage: replicate_image_ai -kontext <model> -input <image_path> [-kprompt \"editing prompt\"]")
+			fmt.Println("Models: pro (recommended), max (highest quality), dev (advanced controls)")
+			os.Exit(1)
+		}
+		
+		// Default prompt if not provided
+		if kontextPrompt == "" {
+			kontextPrompt = "Make it a vintage photograph with sepia tones"
+		}
+		
+		// Create server instance
+		server, err := NewReplicateImageMCPServer()
+		if err != nil {
+			log.Fatalf("Failed to create server: %v", err)
+		}
+		
+		ctx := context.Background()
+		
+		// Map model names
+		modelName := "kontext-" + kontextModel
+		if kontextModel != "pro" && kontextModel != "max" && kontextModel != "dev" {
+			fmt.Printf("Invalid Kontext model: %s\n", kontextModel)
+			fmt.Println("Valid models: pro, max, dev")
+			os.Exit(1)
+		}
+		
+		fmt.Printf("Testing FLUX Kontext %s\n", strings.ToUpper(kontextModel))
+		fmt.Printf("Input image: %s\n", inputImage)
+		fmt.Printf("Prompt: %s\n", kontextPrompt)
+		fmt.Println("---")
+		
+		startTime := time.Now()
+		
+		// Prepare parameters
+		params := map[string]interface{}{
+			"file_path": inputImage,
+			"prompt":    kontextPrompt,
+			"model":     modelName,
+		}
+		
+		// Add output filename if specified
+		if outputFile != "" {
+			params["filename"] = outputFile
+		}
+		
+		// Add dev-specific parameters for testing
+		if kontextModel == "dev" {
+			params["go_fast"] = true
+			params["guidance"] = 2.5
+			params["num_inference_steps"] = 30.0
+		}
+		
+		// Call the kontextEditImage function
+		result, err := server.kontextEditImage(ctx, params)
+		
+		elapsed := time.Since(startTime)
+		
+		if err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+			os.Exit(1)
+		}
+		
+		fmt.Printf("✅ Success! Time: %v\n", elapsed)
+		fmt.Printf("Result:\n%s\n", result)
+		
+		// Check if we need to continue operation
+		if strings.Contains(result, "prediction_id:") && strings.Contains(result, "PROCESSING") {
+			// Extract prediction ID from result
+			lines := strings.Split(result, "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "prediction_id:") {
+					parts := strings.Split(line, ":")
+					if len(parts) >= 2 {
+						predictionID := strings.TrimSpace(parts[1])
+						fmt.Printf("\nContinuing operation for prediction_id: %s\n", predictionID)
+						
+						// Wait for completion
+						continueResult, err := server.continueOperation(ctx, map[string]interface{}{
+							"prediction_id": predictionID,
+							"wait_time":     30.0,
+						})
+						
+						if err != nil {
+							fmt.Printf("❌ Continue error: %v\n", err)
+							os.Exit(1)
+						}
+						
+						fmt.Printf("Final Result:\n%s\n", continueResult)
+						break
+					}
+				}
+			}
+		}
+		
 		return
 	}
 	

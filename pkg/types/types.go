@@ -38,6 +38,13 @@ const (
 	
 	ModelInpainting    = "stability-ai/stable-diffusion-inpainting:95b7223104132402a9ae91cc677285bc5eb997834bd2349fa486f53910fd68b3"  // SD inpainting
 	
+	// ============== FLUX KONTEXT TEXT-BASED EDITING ==============
+	// Natural language image editing without masks
+	
+	ModelFluxKontextPro = "black-forest-labs/flux-kontext-pro"  // Balanced speed/quality (recommended default)
+	ModelFluxKontextMax = "black-forest-labs/flux-kontext-max"  // Highest quality, premium tier
+	ModelFluxKontextDev = "black-forest-labs/flux-kontext-dev"  // Advanced controls, more parameters
+	
 	// ============== PHOTO RESTORATION ==============
 	
 	ModelOldPhotoRestore = "microsoft/bringing-old-photos-back-to-life:c75db81db6cbd809d93cc3b7e7a088a351a3349c9fa02b6d393e35e0d51ba799"  // Old photo restoration
