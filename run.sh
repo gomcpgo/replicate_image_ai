@@ -74,6 +74,24 @@ case "$1" in
         go run cmd/main.go cmd/enhancements.go -test-id "$2"
         ;;
     
+    "imagen4")
+        # Test Google Imagen-4 photorealistic generation
+        if [ -z "$REPLICATE_API_TOKEN" ]; then
+            echo "Error: REPLICATE_API_TOKEN environment variable is required"
+            exit 1
+        fi
+        prompt="${2:-A photorealistic portrait of a young woman with vibrant red hair, looking directly at the camera with a warm smile, soft golden hour lighting streaming through a window, shallow depth of field with blurred background, shot on professional camera}"
+        aspect="${3:-16:9}"
+        safety="${4:-block_only_high}"
+        
+        echo "Testing Google Imagen-4..."
+        echo "Prompt: $prompt"
+        echo "Aspect Ratio: $aspect"
+        echo "Safety Filter: $safety"
+        
+        go run cmd/main.go cmd/enhancements.go -imagen4 -aspect "$aspect" -safety "$safety" -p "$prompt"
+        ;;
+    
     "edit")
         # Test image editing with FLUX Kontext
         if [ -z "$2" ] || [ -z "$3" ]; then
@@ -163,13 +181,14 @@ case "$1" in
         echo "Replicate Image AI MCP Server Build Script"
         echo "=========================================="
         echo ""
-        echo "Usage: $0 {build|test|integration-test|generate|edit|enhance|list-models|test-all|test-id|run|clean}"
+        echo "Usage: $0 {build|test|integration-test|generate|imagen4|edit|enhance|list-models|test-all|test-id|run|clean}"
         echo ""
         echo "Commands:"
         echo "  build                       - Build the server binary"
         echo "  test                        - Run unit tests"
         echo "  integration-test            - Run integration tests"
         echo "  generate <model>            - Generate image with specific model"
+        echo "  imagen4 [prompt] [aspect]   - Generate with Google Imagen-4 photorealistic model"
         echo "  edit <model> <image>        - Edit image with FLUX Kontext (text-based editing)"
         echo "  enhance <tool> <image>      - Enhance image with AI tools"
         echo "  list-models                 - List available models"
@@ -181,6 +200,8 @@ case "$1" in
         echo "Examples:"
         echo "  $0 generate flux-schnell"
         echo "  $0 generate sdxl \"a beautiful landscape\""
+        echo "  $0 imagen4"
+        echo "  $0 imagen4 \"A photorealistic cat\" 16:9"
         echo "  $0 edit pro car.jpg \"Change the car to red\""
         echo "  $0 edit max photo.jpg \"Make it a 90s cartoon\""
         echo "  $0 enhance remove-bg photo.jpg"

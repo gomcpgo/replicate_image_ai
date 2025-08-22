@@ -18,6 +18,7 @@ const (
 	ModelIdeogramTurbo = "ideogram-ai/ideogram-v3-turbo"         // Text in images
 	ModelRecraft       = "recraft-ai/recraft-v3"                 // Raster images
 	ModelRecraftSVG    = "recraft-ai/recraft-v3-svg"             // SVG generation
+	ModelImagen4       = "google/imagen-4"                       // Google's photorealistic image generation
 	
 	// ============== ENHANCEMENT MODELS ==============
 	// All with version hashes for reliability
