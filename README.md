@@ -6,11 +6,10 @@ An MCP (Model Context Protocol) server that provides AI-powered image generation
 
 ### Currently Implemented
 - **Image Generation**: Generate AI images from text prompts using various models (Flux, SDXL, Ideogram, etc.)
-- **FLUX Kontext Editing**: Transform images using natural language instructions without masks
+- **Image Editing**: Transform images using natural language instructions with FLUX Kontext (no masks needed)
 - **Face Enhancement**: Restore and enhance faces in photos
 - **Image Upscaling**: Increase resolution using AI super-resolution
 - **Background Removal**: Remove or replace backgrounds
-- **Image Editing**: AI-powered inpainting and editing with masks
 - **Photo Restoration**: Restore old or damaged photos
 - **Continuation Pattern**: Handle long-running operations with a 30-second timeout and continuation mechanism
 - **Local Storage**: All images are stored locally with metadata in YAML format
@@ -130,8 +129,8 @@ Get details about a specific image.
 
 **Returns:** Full image details including metadata and file path.
 
-### kontext_edit_image
-Edit images using natural language instructions with FLUX Kontext models.
+### edit_image
+Edit images using natural language instructions with FLUX Kontext models. Transform entire images without masks.
 
 **Parameters:**
 - `file_path` (required): Path to the local image file to edit

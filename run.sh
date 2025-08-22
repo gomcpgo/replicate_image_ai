@@ -74,10 +74,10 @@ case "$1" in
         go run cmd/main.go cmd/enhancements.go -test-id "$2"
         ;;
     
-    "kontext")
-        # Test FLUX Kontext text-based image editing
+    "edit")
+        # Test image editing with FLUX Kontext
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: ./run.sh kontext <model> <image_path> [prompt] [output_file]"
+            echo "Usage: ./run.sh edit <model> <image_path> [prompt] [output_file]"
             echo ""
             echo "Models:"
             echo "  pro - Balanced speed/quality (recommended)"
@@ -85,9 +85,9 @@ case "$1" in
             echo "  dev - Advanced controls"
             echo ""
             echo "Examples:"
-            echo "  ./run.sh kontext pro photo.jpg \"Make it a 90s cartoon\""
-            echo "  ./run.sh kontext max car.jpg \"Change the car to red\""
-            echo "  ./run.sh kontext dev landscape.jpg \"Add rain and fog\" rainy.png"
+            echo "  ./run.sh edit pro photo.jpg \"Make it a 90s cartoon\""
+            echo "  ./run.sh edit max car.jpg \"Change the car to red\""
+            echo "  ./run.sh edit dev landscape.jpg \"Add rain and fog\" rainy.png"
             exit 1
         fi
         if [ -z "$REPLICATE_API_TOKEN" ]; then
@@ -99,7 +99,7 @@ case "$1" in
         prompt="${4:-Make it a vintage photograph with sepia tones}"
         output="${5:-}"
         
-        cmd="go run cmd/main.go cmd/enhancements.go -kontext $model -input \"$image\" -kprompt \"$prompt\""
+        cmd="go run cmd/main.go cmd/enhancements.go -edit $model -input \"$image\" -eprompt \"$prompt\""
         if [ -n "$output" ]; then
             cmd="$cmd -output \"$output\""
         fi
@@ -109,23 +109,19 @@ case "$1" in
     "enhance")
         # Test enhancement functions
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: ./run.sh enhance <tool> <image_path> [model/mask] [output_file] [prompt]"
+            echo "Usage: ./run.sh enhance <tool> <image_path> [model] [output_file]"
             echo ""
             echo "Tools:"
             echo "  remove-bg - Remove background from image"
             echo "  upscale   - Upscale image to higher resolution"
             echo "  face      - Enhance faces in image"
             echo "  restore   - Restore old/damaged photos"
-            echo "  edit      - Edit parts of image with AI inpainting"
             echo ""
             echo "Examples:"
             echo "  ./run.sh enhance remove-bg photo.jpg"
             echo "  ./run.sh enhance upscale photo.jpg realesrgan"
             echo "  ./run.sh enhance face portrait.jpg gfpgan"
             echo "  ./run.sh enhance restore old_photo.jpg"
-            echo "  ./run.sh enhance edit image.jpg"
-            echo "  ./run.sh enhance edit image.jpg mask.png"
-            echo "  ./run.sh enhance edit image.jpg \"\" output.png \"Add a sunset\""
             exit 1
         fi
         if [ -z "$REPLICATE_API_TOKEN" ]; then
@@ -167,14 +163,14 @@ case "$1" in
         echo "Replicate Image AI MCP Server Build Script"
         echo "=========================================="
         echo ""
-        echo "Usage: $0 {build|test|integration-test|generate|kontext|enhance|list-models|test-all|test-id|run|clean}"
+        echo "Usage: $0 {build|test|integration-test|generate|edit|enhance|list-models|test-all|test-id|run|clean}"
         echo ""
         echo "Commands:"
         echo "  build                       - Build the server binary"
         echo "  test                        - Run unit tests"
         echo "  integration-test            - Run integration tests"
         echo "  generate <model>            - Generate image with specific model"
-        echo "  kontext <model> <image>     - Edit image with FLUX Kontext (text-based editing)"
+        echo "  edit <model> <image>        - Edit image with FLUX Kontext (text-based editing)"
         echo "  enhance <tool> <image>      - Enhance image with AI tools"
         echo "  list-models                 - List available models"
         echo "  test-all                    - Test all models"
@@ -185,8 +181,8 @@ case "$1" in
         echo "Examples:"
         echo "  $0 generate flux-schnell"
         echo "  $0 generate sdxl \"a beautiful landscape\""
-        echo "  $0 kontext pro car.jpg \"Change the car to red\""
-        echo "  $0 kontext max photo.jpg \"Make it a 90s cartoon\""
+        echo "  $0 edit pro car.jpg \"Change the car to red\""
+        echo "  $0 edit max photo.jpg \"Make it a 90s cartoon\""
         echo "  $0 enhance remove-bg photo.jpg"
         echo "  $0 enhance upscale image.png realesrgan"
         echo "  $0 enhance face portrait.jpg gfpgan"

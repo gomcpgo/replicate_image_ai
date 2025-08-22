@@ -280,50 +280,6 @@ func (s *ReplicateImageMCPServer) ListTools(ctx context.Context) (*protocol.List
 		},
 		{
 			Name:        "edit_image",
-			Description: "Edit specific parts of an image using AI inpainting. You can provide a mask to specify the area to edit, or describe what to change.",
-			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"file_path": {
-						"type": "string",
-						"description": "Path to the image to edit"
-					},
-					"edit_prompt": {
-						"type": "string",
-						"description": "What to generate in the edited area"
-					},
-					"mask_path": {
-						"type": "string",
-						"description": "Optional: Path to mask image (white=edit, black=keep)"
-					},
-					"selection_prompt": {
-						"type": "string",
-						"description": "Optional: Text description of what to select for editing"
-					},
-					"strength": {
-						"type": "number",
-						"description": "Edit strength (0-1, default 0.8)",
-						"default": 0.8
-					},
-					"guidance_scale": {
-						"type": "number",
-						"description": "How closely to follow the prompt (1-20, default 7.5)",
-						"default": 7.5
-					},
-					"negative_prompt": {
-						"type": "string",
-						"description": "What to avoid in the edited area"
-					},
-					"filename": {
-						"type": "string",
-						"description": "Optional output filename"
-					}
-				},
-				"required": ["file_path", "edit_prompt"]
-			}`),
-		},
-		{
-			Name:        "kontext_edit_image",
 			Description: "Edit images using natural language instructions with FLUX Kontext. Transform entire images without masks. Examples: 'Make it a 90s cartoon', 'Change the car to red', 'Make it nighttime with rain', 'Convert to oil painting style', 'Add sunglasses to the person', 'Make the text 3D and glowing'.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -551,24 +507,6 @@ func (s *ReplicateImageMCPServer) CallTool(ctx context.Context, req *protocol.Ca
 
 	case "edit_image":
 		result, err := s.editImage(ctx, req.Arguments)
-		if err != nil {
-			return &protocol.CallToolResponse{
-				Content: []protocol.ToolContent{{
-					Type: "text",
-					Text: fmt.Sprintf("Error: %v", err),
-				}},
-				IsError: true,
-			}, nil
-		}
-		return &protocol.CallToolResponse{
-			Content: []protocol.ToolContent{{
-				Type: "text",
-				Text: result,
-			}},
-		}, nil
-
-	case "kontext_edit_image":
-		result, err := s.kontextEditImage(ctx, req.Arguments)
 		if err != nil {
 			return &protocol.CallToolResponse{
 				Content: []protocol.ToolContent{{
@@ -1151,9 +1089,9 @@ func main() {
 		inputImage       string
 		enhanceModel     string
 		outputFile       string
-		// FLUX Kontext testing flags
-		kontextModel     string
-		kontextPrompt    string
+		// Image editing flags
+		editModel     string
+		editPrompt    string
 	)
 	
 	flag.StringVar(&generateModel, "g", "", "Generate an image using specified model (e.g., -g flux-schnell)")
@@ -1167,9 +1105,9 @@ func main() {
 	flag.StringVar(&inputImage, "input", "", "Input image path for enhancement tests")
 	flag.StringVar(&enhanceModel, "model", "", "Model to use for enhancement (e.g., gfpgan, codeformer)")
 	flag.StringVar(&outputFile, "output", "", "Output filename for enhanced image")
-	// FLUX Kontext flags
-	flag.StringVar(&kontextModel, "kontext", "", "Test FLUX Kontext editing: pro, max, or dev")
-	flag.StringVar(&kontextPrompt, "kprompt", "", "Prompt for Kontext editing (use with -kontext and -input)")
+	// Edit image flags
+	flag.StringVar(&editModel, "edit", "", "Test image editing with FLUX Kontext: pro, max, or dev")
+	flag.StringVar(&editPrompt, "eprompt", "", "Prompt for image editing (use with -edit and -input)")
 	flag.Parse()
 	
 	if versionFlag {
@@ -1185,18 +1123,18 @@ func main() {
 		return
 	}
 	
-	// Handle FLUX Kontext testing
-	if kontextModel != "" {
+	// Handle image editing testing
+	if editModel != "" {
 		if inputImage == "" {
-			fmt.Println("Error: -input flag is required when using -kontext")
-			fmt.Println("Usage: replicate_image_ai -kontext <model> -input <image_path> [-kprompt \"editing prompt\"]")
+			fmt.Println("Error: -input flag is required when using -edit")
+			fmt.Println("Usage: replicate_image_ai -edit <model> -input <image_path> [-eprompt \"editing prompt\"]")
 			fmt.Println("Models: pro (recommended), max (highest quality), dev (advanced controls)")
 			os.Exit(1)
 		}
 		
 		// Default prompt if not provided
-		if kontextPrompt == "" {
-			kontextPrompt = "Make it a vintage photograph with sepia tones"
+		if editPrompt == "" {
+			editPrompt = "Make it a vintage photograph with sepia tones"
 		}
 		
 		// Create server instance
@@ -1208,16 +1146,16 @@ func main() {
 		ctx := context.Background()
 		
 		// Map model names
-		modelName := "kontext-" + kontextModel
-		if kontextModel != "pro" && kontextModel != "max" && kontextModel != "dev" {
-			fmt.Printf("Invalid Kontext model: %s\n", kontextModel)
+		modelName := "kontext-" + editModel
+		if editModel != "pro" && editModel != "max" && editModel != "dev" {
+			fmt.Printf("Invalid Kontext model: %s\n", editModel)
 			fmt.Println("Valid models: pro, max, dev")
 			os.Exit(1)
 		}
 		
-		fmt.Printf("Testing FLUX Kontext %s\n", strings.ToUpper(kontextModel))
+		fmt.Printf("Testing FLUX Kontext %s\n", strings.ToUpper(editModel))
 		fmt.Printf("Input image: %s\n", inputImage)
-		fmt.Printf("Prompt: %s\n", kontextPrompt)
+		fmt.Printf("Prompt: %s\n", editPrompt)
 		fmt.Println("---")
 		
 		startTime := time.Now()
@@ -1225,7 +1163,7 @@ func main() {
 		// Prepare parameters
 		params := map[string]interface{}{
 			"file_path": inputImage,
-			"prompt":    kontextPrompt,
+			"prompt":    editPrompt,
 			"model":     modelName,
 		}
 		
@@ -1235,14 +1173,14 @@ func main() {
 		}
 		
 		// Add dev-specific parameters for testing
-		if kontextModel == "dev" {
+		if editModel == "dev" {
 			params["go_fast"] = true
 			params["guidance"] = 2.5
 			params["num_inference_steps"] = 30.0
 		}
 		
-		// Call the kontextEditImage function
-		result, err := server.kontextEditImage(ctx, params)
+		// Call the editImage function
+		result, err := server.editImage(ctx, params)
 		
 		elapsed := time.Since(startTime)
 		
