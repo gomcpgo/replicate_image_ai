@@ -24,10 +24,7 @@ type ReplicateImageHandler struct {
 // NewReplicateImageHandler creates a new handler instance
 func NewReplicateImageHandler(apiKey string, rootFolder string, debug bool) (*ReplicateImageHandler, error) {
 	// Initialize storage
-	store, err := storage.NewStorage(rootFolder)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize storage: %w", err)
-	}
+	store := storage.NewStorage(rootFolder)
 	
 	// Initialize Replicate client
 	replicateClient := client.NewReplicateClient(apiKey)

@@ -3,9 +3,11 @@ package enhancement
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/gomcpgo/replicate_image_ai/pkg/storage"
+	"github.com/gomcpgo/replicate_image_ai/pkg/types"
 )
 
 // UpscaleImage upscales an image to higher resolution
@@ -70,14 +72,14 @@ func (e *Enhancer) UpscaleImage(ctx context.Context, params UpscaleParams) (*Enh
 	
 	// Download and save image
 	filename := e.generateFilename(params.Filename, params.ImagePath, fmt.Sprintf("upscaled_%dx", params.Scale))
-	outputPath, err := e.storage.DownloadAndSaveImage(outputURL, id, filename)
+	outputPath, err := e.storage.SaveImage(id, outputURL, filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save image: %w", err)
 	}
 	
 	// Calculate metrics
-	inputInfo, _ := e.storage.GetFileInfo(params.ImagePath)
-	outputInfo, _ := e.storage.GetFileInfo(outputPath)
+	inputInfo, _ := os.Stat(params.ImagePath)
+	outputInfo, _ := os.Stat(outputPath)
 	
 	metrics := EnhancementMetrics{
 		ProcessingTime: time.Since(startTime).Seconds(),
@@ -87,7 +89,13 @@ func (e *Enhancer) UpscaleImage(ctx context.Context, params UpscaleParams) (*Enh
 	}
 	
 	// Save metadata
-	metadata := &EnhancementMetadata{
+	opResult := &types.OperationResult{
+		Filename:       filename,
+		GenerationTime: time.Since(startTime).Seconds(),
+		PredictionID:   prediction.ID,
+	}
+	
+	metadata := &types.ImageMetadata{
 		Version:   "1.0",
 		ID:        id,
 		Operation: "upscale_image",
@@ -99,7 +107,7 @@ func (e *Enhancer) UpscaleImage(ctx context.Context, params UpscaleParams) (*Enh
 			"scale":         params.Scale,
 			"face_enhance":  params.FaceEnhance,
 		},
-		Result: result,
+		Result: opResult,
 	}
 	
 	if err := e.storage.SaveMetadata(id, metadata); err != nil {

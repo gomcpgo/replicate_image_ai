@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/gomcpgo/replicate_image_ai/pkg/client"
 	"github.com/gomcpgo/replicate_image_ai/pkg/storage"
+	"github.com/gomcpgo/replicate_image_ai/pkg/types"
 )
 
 // GenerateWithVisualContext generates images using RunwayML Gen-4 with reference images
@@ -60,7 +60,7 @@ func (g *Generator) GenerateWithVisualContext(ctx context.Context, params Gen4Pa
 	const maxAttempts = 60
 	const pollInterval = 2 * time.Second
 	
-	var result *client.PredictionResult
+	var result *types.ReplicatePredictionResponse
 	for i := 0; i < maxAttempts; i++ {
 		result, err = g.client.GetPrediction(ctx, prediction.ID)
 		if err != nil {
@@ -114,20 +114,26 @@ func (g *Generator) GenerateWithVisualContext(ctx context.Context, params Gen4Pa
 	
 	// Download and save image
 	filename := g.generateFilename(params.Filename, params.Prompt, ModelGen4Image)
-	imagePath, err := g.storage.DownloadAndSaveImage(outputURL, id, filename)
+	imagePath, err := g.storage.SaveImage(id, outputURL, filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save image: %w", err)
 	}
 	
 	// Calculate metrics
-	fileInfo, _ := g.storage.GetFileInfo(imagePath)
+	fileInfo, _ := os.Stat(imagePath)
 	metrics := GenerationMetrics{
 		GenerationTime: time.Since(startTime).Seconds(),
 		FileSize:       fileInfo.Size(),
 	}
 	
 	// Save metadata
-	metadata := &ImageMetadata{
+	opResult := &types.OperationResult{
+		Filename:       filename,
+		GenerationTime: time.Since(startTime).Seconds(),
+		PredictionID:   prediction.ID,
+	}
+	
+	metadata := &types.ImageMetadata{
 		Version:   "1.0",
 		ID:        id,
 		Operation: "generate_with_visual_context",
@@ -140,7 +146,7 @@ func (g *Generator) GenerateWithVisualContext(ctx context.Context, params Gen4Pa
 			"aspect_ratio":     params.AspectRatio,
 			"resolution":       params.Resolution,
 		},
-		Result: result,
+		Result: opResult,
 	}
 	
 	if err := g.storage.SaveMetadata(id, metadata); err != nil && g.debug {
@@ -192,7 +198,7 @@ func (g *Generator) validateGen4Params(params Gen4Params) error {
 	}
 	
 	// Validate tags format (3-15 alphanumeric characters)
-	for i, tag := range params.ReferenceTags {
+	for _, tag := range params.ReferenceTags {
 		if len(tag) < 3 || len(tag) > 15 {
 			return GenerationError{
 				Code:    "invalid_parameters",
@@ -226,7 +232,7 @@ func (g *Generator) validateGen4Params(params Gen4Params) error {
 func (g *Generator) convertImagesToDataURLs(imagePaths []string) ([]string, error) {
 	imageURLs := make([]string, 0, len(imagePaths))
 	
-	for i, imagePath := range imagePaths {
+	for _, imagePath := range imagePaths {
 		// Check if file exists
 		if _, err := os.Stat(imagePath); os.IsNotExist(err) {
 			return nil, GenerationError{
@@ -240,13 +246,13 @@ func (g *Generator) convertImagesToDataURLs(imagePaths []string) ([]string, erro
 		if err != nil {
 			return nil, GenerationError{
 				Code:    "file_error",
-				Message: fmt.Sprintf("failed to read reference image %d: %v", i+1, err),
+				Message: fmt.Sprintf("failed to read reference image: %v", err),
 			}
 		}
 		
 		if g.debug {
-			log.Printf("Converted reference image %d: %s -> data URL (length: %d)", 
-				i+1, imagePath, len(dataURL))
+			log.Printf("Converted reference image: %s -> data URL (length: %d)", 
+				imagePath, len(dataURL))
 		}
 		
 		imageURLs = append(imageURLs, dataURL)

@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gomcpgo/replicate_image_ai/pkg/client"
 	"github.com/gomcpgo/replicate_image_ai/pkg/storage"
+	"github.com/gomcpgo/replicate_image_ai/pkg/types"
 )
 
 // Generator handles image generation operations
@@ -67,7 +69,7 @@ func (g *Generator) GenerateImage(ctx context.Context, params GenerateParams) (*
 	const maxAttempts = 60
 	const pollInterval = 2 * time.Second
 	
-	var result *client.PredictionResult
+	var result *types.ReplicatePredictionResponse
 	for i := 0; i < maxAttempts; i++ {
 		result, err = g.client.GetPrediction(ctx, prediction.ID)
 		if err != nil {
@@ -121,20 +123,26 @@ func (g *Generator) GenerateImage(ctx context.Context, params GenerateParams) (*
 	
 	// Download and save image
 	filename := g.generateFilename(params.Filename, params.Prompt, modelID)
-	imagePath, err := g.storage.DownloadAndSaveImage(outputURL, id, filename)
+	imagePath, err := g.storage.SaveImage(id, outputURL, filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save image: %w", err)
 	}
 	
 	// Calculate metrics
-	fileInfo, _ := g.storage.GetFileInfo(imagePath)
+	fileInfo, _ := os.Stat(imagePath)
 	metrics := GenerationMetrics{
 		GenerationTime: time.Since(startTime).Seconds(),
 		FileSize:       fileInfo.Size(),
 	}
 	
 	// Save metadata
-	metadata := &ImageMetadata{
+	opResult := &types.OperationResult{
+		Filename:       filename,
+		GenerationTime: time.Since(startTime).Seconds(),
+		PredictionID:   prediction.ID,
+	}
+	
+	metadata := &types.ImageMetadata{
 		Version:   "1.0",
 		ID:        id,
 		Operation: "generate_image",
@@ -144,7 +152,7 @@ func (g *Generator) GenerateImage(ctx context.Context, params GenerateParams) (*
 			"prompt": params.Prompt,
 			"model":  params.Model,
 		},
-		Result: result,
+		Result: opResult,
 	}
 	
 	if err := g.storage.SaveMetadata(id, metadata); err != nil && g.debug {

@@ -3,12 +3,13 @@ package enhancement
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/gomcpgo/replicate_image_ai/pkg/client"
 	"github.com/gomcpgo/replicate_image_ai/pkg/storage"
+	"github.com/gomcpgo/replicate_image_ai/pkg/types"
 )
 
 // RemoveBackground removes the background from an image
@@ -69,14 +70,14 @@ func (e *Enhancer) RemoveBackground(ctx context.Context, params RemoveBackground
 	
 	// Download and save image
 	filename := e.generateFilename(params.Filename, params.ImagePath, "no_bg")
-	outputPath, err := e.storage.DownloadAndSaveImage(outputURL, id, filename)
+	outputPath, err := e.storage.SaveImage(id, outputURL, filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save image: %w", err)
 	}
 	
 	// Calculate metrics
-	inputInfo, _ := e.storage.GetFileInfo(params.ImagePath)
-	outputInfo, _ := e.storage.GetFileInfo(outputPath)
+	inputInfo, _ := os.Stat(params.ImagePath)
+	outputInfo, _ := os.Stat(outputPath)
 	
 	metrics := EnhancementMetrics{
 		ProcessingTime: time.Since(startTime).Seconds(),
@@ -85,7 +86,13 @@ func (e *Enhancer) RemoveBackground(ctx context.Context, params RemoveBackground
 	}
 	
 	// Save metadata
-	metadata := &EnhancementMetadata{
+	opResult := &types.OperationResult{
+		Filename:       filename,
+		GenerationTime: time.Since(startTime).Seconds(),
+		PredictionID:   prediction.ID,
+	}
+	
+	metadata := &types.ImageMetadata{
 		Version:   "1.0",
 		ID:        id,
 		Operation: "remove_background",
@@ -96,7 +103,7 @@ func (e *Enhancer) RemoveBackground(ctx context.Context, params RemoveBackground
 			"model":      params.Model,
 			"alpha":      params.Alpha,
 		},
-		Result: result,
+		Result: opResult,
 	}
 	
 	if err := e.storage.SaveMetadata(id, metadata); err != nil {
@@ -142,7 +149,7 @@ func (e *Enhancer) buildRemoveBackgroundInput(modelID, dataURL string) map[strin
 }
 
 // pollForCompletion polls the API until the prediction completes
-func (e *Enhancer) pollForCompletion(ctx context.Context, predictionID string, maxAttempts int, interval time.Duration) (*client.PredictionResult, error) {
+func (e *Enhancer) pollForCompletion(ctx context.Context, predictionID string, maxAttempts int, interval time.Duration) (*types.ReplicatePredictionResponse, error) {
 	for i := 0; i < maxAttempts; i++ {
 		result, err := e.client.GetPrediction(ctx, predictionID)
 		if err != nil {
@@ -177,7 +184,7 @@ func (e *Enhancer) pollForCompletion(ctx context.Context, predictionID string, m
 }
 
 // extractOutputURL extracts the output URL from prediction result
-func (e *Enhancer) extractOutputURL(result *client.PredictionResult) (string, error) {
+func (e *Enhancer) extractOutputURL(result *types.ReplicatePredictionResponse) (string, error) {
 	// Handle string output
 	if url, ok := result.Output.(string); ok && url != "" {
 		return url, nil

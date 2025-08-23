@@ -3,9 +3,11 @@ package enhancement
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/gomcpgo/replicate_image_ai/pkg/storage"
+	"github.com/gomcpgo/replicate_image_ai/pkg/types"
 )
 
 // EnhanceFace enhances faces in an image
@@ -71,14 +73,14 @@ func (e *Enhancer) EnhanceFace(ctx context.Context, params EnhanceFaceParams) (*
 	
 	// Download and save image
 	filename := e.generateFilename(params.Filename, params.ImagePath, "enhanced_face")
-	outputPath, err := e.storage.DownloadAndSaveImage(outputURL, id, filename)
+	outputPath, err := e.storage.SaveImage(id, outputURL, filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save image: %w", err)
 	}
 	
 	// Calculate metrics
-	inputInfo, _ := e.storage.GetFileInfo(params.ImagePath)
-	outputInfo, _ := e.storage.GetFileInfo(outputPath)
+	inputInfo, _ := os.Stat(params.ImagePath)
+	outputInfo, _ := os.Stat(outputPath)
 	
 	metrics := EnhancementMetrics{
 		ProcessingTime: time.Since(startTime).Seconds(),
@@ -87,7 +89,13 @@ func (e *Enhancer) EnhanceFace(ctx context.Context, params EnhanceFaceParams) (*
 	}
 	
 	// Save metadata
-	metadata := &EnhancementMetadata{
+	opResult := &types.OperationResult{
+		Filename:       filename,
+		GenerationTime: time.Since(startTime).Seconds(),
+		PredictionID:   prediction.ID,
+	}
+	
+	metadata := &types.ImageMetadata{
 		Version:   "1.0",
 		ID:        id,
 		Operation: "enhance_face",
@@ -101,7 +109,7 @@ func (e *Enhancer) EnhanceFace(ctx context.Context, params EnhanceFaceParams) (*
 			"has_aligned":        params.HasAligned,
 			"background_enhance": params.BackgroundEnhance,
 		},
-		Result: result,
+		Result: opResult,
 	}
 	
 	if err := e.storage.SaveMetadata(id, metadata); err != nil {

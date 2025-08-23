@@ -2,8 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	"github.com/gomcpgo/mcp/pkg/protocol"
 	"github.com/gomcpgo/replicate_image_ai/pkg/generation"

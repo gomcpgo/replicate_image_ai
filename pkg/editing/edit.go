@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gomcpgo/replicate_image_ai/pkg/client"
 	"github.com/gomcpgo/replicate_image_ai/pkg/storage"
+	"github.com/gomcpgo/replicate_image_ai/pkg/types"
 )
 
 // Editor handles image editing operations
@@ -76,7 +78,7 @@ func (e *Editor) EditImage(ctx context.Context, params EditParams) (*EditResult,
 	const maxAttempts = 60
 	const pollInterval = 2 * time.Second
 	
-	var result *client.PredictionResult
+	var result *types.ReplicatePredictionResponse
 	for i := 0; i < maxAttempts; i++ {
 		result, err = e.client.GetPrediction(ctx, prediction.ID)
 		if err != nil {
@@ -130,14 +132,14 @@ func (e *Editor) EditImage(ctx context.Context, params EditParams) (*EditResult,
 	
 	// Download and save image
 	filename := e.generateFilename(params.Filename, params.ImagePath, "edited")
-	outputPath, err := e.storage.DownloadAndSaveImage(outputURL, id, filename)
+	outputPath, err := e.storage.SaveImage(id, outputURL, filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save image: %w", err)
 	}
 	
 	// Calculate metrics
-	inputInfo, _ := e.storage.GetFileInfo(params.ImagePath)
-	outputInfo, _ := e.storage.GetFileInfo(outputPath)
+	inputInfo, _ := os.Stat(params.ImagePath)
+	outputInfo, _ := os.Stat(outputPath)
 	
 	metrics := EditMetrics{
 		ProcessingTime: time.Since(startTime).Seconds(),
@@ -146,7 +148,13 @@ func (e *Editor) EditImage(ctx context.Context, params EditParams) (*EditResult,
 	}
 	
 	// Save metadata
-	metadata := &EditMetadata{
+	opResult := &types.OperationResult{
+		Filename:       filename,
+		GenerationTime: time.Since(startTime).Seconds(),
+		PredictionID:   prediction.ID,
+	}
+	
+	metadata := &types.ImageMetadata{
 		Version:   "1.0",
 		ID:        id,
 		Operation: "edit_image",
@@ -159,7 +167,7 @@ func (e *Editor) EditImage(ctx context.Context, params EditParams) (*EditResult,
 			"strength":       params.Strength,
 			"guidance_scale": params.GuidanceScale,
 		},
-		Result: result,
+		Result: opResult,
 	}
 	
 	if err := e.storage.SaveMetadata(id, metadata); err != nil && e.debug {
