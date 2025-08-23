@@ -1117,6 +1117,12 @@ func (s *ReplicateImageMCPServer) generateWithVisualContext(ctx context.Context,
 		if err != nil {
 			return responses.BuildErrorResponse("generate_with_visual_context", "file_error", fmt.Sprintf("failed to read reference image %d: %v", i+1, err), nil), nil
 		}
+		
+		// Debug logging
+		if s.config.DebugMode {
+			log.Printf("[DEBUG] Converted reference image %d: %s -> data URL (length: %d)", i+1, imagePath, len(dataURL))
+		}
+		
 		imageURLs = append(imageURLs, dataURL)
 	}
 
@@ -1134,7 +1140,7 @@ func (s *ReplicateImageMCPServer) generateWithVisualContext(ctx context.Context,
 	// Build input parameters for Gen-4
 	input := map[string]interface{}{
 		"prompt":           prompt,
-		"reference_images": imageURLs,
+		"reference_images": imageURLs,  // These are now data URLs, not file paths
 		"reference_tags":   referenceTags,
 		"aspect_ratio":     aspectRatio,
 		"resolution":       resolution,
