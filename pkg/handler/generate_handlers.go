@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/gomcpgo/mcp/pkg/protocol"
@@ -111,6 +112,9 @@ func (h *ReplicateImageHandler) handleGenerateImage(ctx context.Context, args ma
 
 // handleGenerateWithVisualContext handles the generate_with_visual_context tool
 func (h *ReplicateImageHandler) handleGenerateWithVisualContext(ctx context.Context, args map[string]interface{}) (*protocol.CallToolResponse, error) {
+	log.Printf("DEBUG: ===== START handleGenerateWithVisualContext =====")
+	startTime := time.Now()
+	
 	// Extract and validate parameters
 	prompt, ok := args["prompt"].(string)
 	if !ok || prompt == "" {
@@ -176,7 +180,13 @@ func (h *ReplicateImageHandler) handleGenerateWithVisualContext(ctx context.Cont
 	}
 	
 	// Call core generation function
+	log.Printf("DEBUG: Handler calling GenerateWithVisualContext")
 	result, err := h.generator.GenerateWithVisualContext(ctx, params)
+	if result != nil {
+		log.Printf("DEBUG: GenerateWithVisualContext returned: err=%v, status=%s", err, result.Status)
+	} else {
+		log.Printf("DEBUG: GenerateWithVisualContext returned: err=%v, result=nil", err)
+	}
 	if err != nil {
 		if genErr, ok := err.(generation.GenerationError); ok {
 			return h.errorResponse("generate_with_visual_context", genErr.Code, genErr.Message, genErr.Details)
@@ -186,6 +196,7 @@ func (h *ReplicateImageHandler) handleGenerateWithVisualContext(ctx context.Cont
 	
 	// Check if operation is still processing
 	if result.Status == "processing" {
+		log.Printf("DEBUG: Handling processing status")
 		// Store in pending operations
 		h.pendingOps.Add(result.PredictionID, &PendingOperation{
 			PredictionID: result.PredictionID,
@@ -203,12 +214,17 @@ func (h *ReplicateImageHandler) handleGenerateWithVisualContext(ctx context.Cont
 			result.StorageID,
 			45, // Initial estimate for Gen-4
 		)
-		return h.successResponse(response)
+		log.Printf("DEBUG: Returning processing response")
+		resp, err := h.successResponse(response)
+		log.Printf("DEBUG: ===== END handleGenerateWithVisualContext (async) - took %v =====", time.Since(startTime))
+		return resp, err
 	}
 	
 	// Build success response
 	response := h.buildGenerationResponse("generate_with_visual_context", result)
-	return h.successResponse(response)
+	resp, err := h.successResponse(response)
+	log.Printf("DEBUG: ===== END handleGenerateWithVisualContext (complete) - took %v =====", time.Since(startTime))
+	return resp, err
 }
 
 // buildGenerationResponse builds a structured response for generation results

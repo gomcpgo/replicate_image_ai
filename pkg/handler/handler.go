@@ -3,6 +3,8 @@ package handler
 import (
 	"context"
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/gomcpgo/mcp/pkg/protocol"
 	"github.com/gomcpgo/replicate_image_ai/pkg/client"
@@ -52,6 +54,14 @@ func NewReplicateImageHandler(apiKey string, rootFolder string, debug bool) (*Re
 
 // CallTool handles execution of image tools
 func (h *ReplicateImageHandler) CallTool(ctx context.Context, req *protocol.CallToolRequest) (*protocol.CallToolResponse, error) {
+	log.Printf("DEBUG: MCP CallTool received: %s", req.Name)
+	deadline, hasDeadline := ctx.Deadline()
+	if hasDeadline {
+		log.Printf("DEBUG: Context has deadline: %v (in %v)", deadline, time.Until(deadline))
+	} else {
+		log.Printf("DEBUG: Context has no deadline")
+	}
+	
 	switch req.Name {
 	// Generation tools
 	case "generate_image":

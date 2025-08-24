@@ -55,7 +55,7 @@ func BuildProcessingResponse(operation string, predictionID string, storageID st
 		"status":        "processing",
 		"prediction_id": predictionID,
 		"storage_id":    storageID,
-		"message":       fmt.Sprintf("Operation still in progress. Use continue_operation with prediction_id='%s' to check status.", predictionID),
+		"message":       fmt.Sprintf("⚠️ ASYNC OPERATION - DO NOT call %s again! Instead, use the 'continue_operation' tool with prediction_id='%s' to check status and get the result.", operation, predictionID),
 	}
 	
 	if estimatedRemaining > 0 {

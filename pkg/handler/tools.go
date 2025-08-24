@@ -88,7 +88,7 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 		},
 		{
 			Name:        "generate_with_visual_context",
-			Description: `[CREATE VARIATIONS] Generate variations, iterations, or consistent series from existing images using RunwayML Gen-4. Use when: Need multiple views of same subject, maintaining character/object identity, consistent style across images. NOT for: Simple edits, changing attributes of existing image. Examples: Character in different poses/scenes, product from multiple angles, consistent art style series. Requires 1-3 reference images with @tags in prompt (e.g., "@person at beach", "@product on shelf").`,
+			Description: `[CREATE VARIATIONS] Generate variations, iterations, or consistent series from existing images using RunwayML Gen-4. Use when: Need multiple views of same subject, maintaining character/object identity, consistent style across images. NOT for: Simple edits, changing attributes of existing image. Examples: Character in different poses/scenes, product from multiple angles, consistent art style series. Requires 1-3 reference images with @tags in prompt (e.g., "@person at beach", "@product on shelf"). IMPORTANT: This may return 'processing' status - if so, use continue_operation tool with the provided prediction_id, DO NOT call this tool again!`,
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -321,7 +321,7 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 		},
 		{
 			Name:        "continue_operation",
-			Description: "[CONTINUE WAITING] Check status of a long-running operation and continue waiting if needed. Use when: Previous operation returned 'processing' status with a prediction_id. Automatically handles polling and result retrieval.",
+			Description: "[REQUIRED FOR ASYNC] ALWAYS use this tool when you receive 'processing' status with a prediction_id. DO NOT call the original tool again - that creates a NEW operation! This tool checks the status of an EXISTING operation. The message will explicitly say 'Use continue_operation with prediction_id=XXX'. You MUST use this exact prediction_id, not generate a new one.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {

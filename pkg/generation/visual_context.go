@@ -16,6 +16,10 @@ import (
 func (g *Generator) GenerateWithVisualContext(ctx context.Context, params Gen4Params) (*ImageResult, error) {
 	startTime := time.Now()
 	
+	log.Printf("DEBUG: GenerateWithVisualContext started at %v", startTime)
+	deadline, hasDeadline := ctx.Deadline()
+	log.Printf("DEBUG: Context deadline: %v (has deadline: %v)", deadline, hasDeadline)
+	
 	// Validate parameters
 	if err := g.validateGen4Params(params); err != nil {
 		return nil, err
@@ -28,10 +32,13 @@ func (g *Generator) GenerateWithVisualContext(ctx context.Context, params Gen4Pa
 	}
 	
 	// Convert local file paths to data URLs
+	log.Printf("DEBUG: Converting %d images to data URLs", len(params.ReferenceImages))
 	imageURLs, err := g.convertImagesToDataURLs(params.ReferenceImages)
 	if err != nil {
+		log.Printf("DEBUG: Failed to convert images: %v", err)
 		return nil, err
 	}
+	log.Printf("DEBUG: Conversion complete, got %d data URLs", len(imageURLs))
 	
 	if g.debug {
 		log.Printf("Generating with visual context: %d reference images", len(imageURLs))
@@ -52,14 +59,18 @@ func (g *Generator) GenerateWithVisualContext(ctx context.Context, params Gen4Pa
 	}
 	
 	// Create prediction with Gen-4 model
+	log.Printf("DEBUG: Creating prediction with Gen-4 model")
 	prediction, err := g.client.CreatePrediction(ctx, ModelGen4Image, input)
 	if err != nil {
+		log.Printf("DEBUG: Failed to create prediction: %v", err)
 		return nil, fmt.Errorf("failed to create prediction: %w", err)
 	}
+	log.Printf("DEBUG: Prediction created with ID: %s", prediction.ID)
 	
 	// Wait for initial period (15 seconds) - Gen-4 can take longer
 	// Use a separate context to ensure we return after 15 seconds
 	// regardless of the original MCP timeout
+	log.Printf("DEBUG: Starting wait period, will wait max 15 seconds")
 	ctx15s, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	
@@ -71,19 +82,24 @@ func (g *Generator) GenerateWithVisualContext(ctx context.Context, params Gen4Pa
 	resultChan := make(chan waitResult, 1)
 	
 	go func() {
+		log.Printf("DEBUG: Goroutine started, calling WaitForCompletion")
 		pred, err := g.client.WaitForCompletion(ctx15s, prediction.ID, 15*time.Second)
+		log.Printf("DEBUG: WaitForCompletion returned: err=%v", err)
 		resultChan <- waitResult{prediction: pred, err: err}
 	}()
 	
 	// Wait for either result or timeout
 	var result *types.ReplicatePredictionResponse
 	
+	log.Printf("DEBUG: Waiting for result or 15s timeout...")
 	select {
 	case res := <-resultChan:
+		log.Printf("DEBUG: Got result from channel")
 		result = res.prediction
 		err = res.err
 	case <-time.After(15 * time.Second):
 		// Timeout - return processing status
+		log.Printf("DEBUG: 15s timeout reached, returning processing status")
 		result = nil
 		err = fmt.Errorf("operation timed out after 15s")
 	}
@@ -91,6 +107,7 @@ func (g *Generator) GenerateWithVisualContext(ctx context.Context, params Gen4Pa
 	// Check if it's still processing
 	if err != nil && strings.Contains(err.Error(), "timed out") {
 		// Return processing status
+		log.Printf("DEBUG: Returning processing status with prediction_id=%s", prediction.ID)
 		return &ImageResult{
 			ID:           id,
 			Status:       "processing",

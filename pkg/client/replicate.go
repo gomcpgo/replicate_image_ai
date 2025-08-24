@@ -67,11 +67,11 @@ func (c *ReplicateClient) CreatePrediction(ctx context.Context, modelVersion str
 	log.Printf("DEBUG: Creating prediction")
 	log.Printf("  URL: %s", url)
 	log.Printf("  Model: %s", modelVersion)
-	log.Printf("  Request Body: %s", string(body))
-	if len(c.apiToken) > 10 {
-		log.Printf("  Auth Token: %.10s... (length: %d)", c.apiToken, len(c.apiToken))
+	// Don't log the full body if it's too large (e.g., contains base64 images)
+	if len(body) > 1000 {
+		log.Printf("  Request Body: [%d bytes - too large to log]", len(body))
 	} else {
-		log.Printf("  Auth Token: [TOO SHORT - %d chars]", len(c.apiToken))
+		log.Printf("  Request Body: %s", string(body))
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
@@ -95,7 +95,12 @@ func (c *ReplicateClient) CreatePrediction(ctx context.Context, modelVersion str
 
 	// Log the response
 	log.Printf("DEBUG: Response Status: %d", resp.StatusCode)
-	log.Printf("DEBUG: Response Body: %s", string(respBody))
+	// Don't log the full response if it's too large
+	if len(respBody) > 1000 {
+		log.Printf("DEBUG: Response Body: [%d bytes - too large to log]", len(respBody))
+	} else {
+		log.Printf("DEBUG: Response Body: %s", string(respBody))
+	}
 
 	// Handle specific error codes
 	if resp.StatusCode == http.StatusPaymentRequired {
@@ -155,28 +160,38 @@ func (c *ReplicateClient) GetPrediction(ctx context.Context, predictionID string
 
 // WaitForCompletion waits for a prediction to complete or timeout
 func (c *ReplicateClient) WaitForCompletion(ctx context.Context, predictionID string, timeout time.Duration) (*types.ReplicatePredictionResponse, error) {
+	log.Printf("DEBUG: WaitForCompletion started for %s, timeout=%v", predictionID, timeout)
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+	
+	pollCount := 0
 
 	for {
 		select {
 		case <-ctx.Done():
+			log.Printf("DEBUG: WaitForCompletion cancelled by context")
 			return nil, ctx.Err()
 		case <-ticker.C:
+			pollCount++
 			if time.Now().After(deadline) {
 				// Return the last known status
+				log.Printf("DEBUG: WaitForCompletion timeout reached after %d polls", pollCount)
 				prediction, _ := c.GetPrediction(ctx, predictionID)
 				return prediction, fmt.Errorf("operation timed out after %v", timeout)
 			}
 
+			log.Printf("DEBUG: Poll #%d for prediction %s", pollCount, predictionID)
 			prediction, err := c.GetPrediction(ctx, predictionID)
 			if err != nil {
+				log.Printf("DEBUG: GetPrediction failed: %v", err)
 				return nil, err
 			}
 
+			log.Printf("DEBUG: Prediction status: %s", prediction.Status)
 			switch prediction.Status {
 			case types.StatusSucceeded:
+				log.Printf("DEBUG: Prediction succeeded after %d polls", pollCount)
 				return prediction, nil
 			case types.StatusFailed:
 				errMsg := "prediction failed"
