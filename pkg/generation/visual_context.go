@@ -58,10 +58,35 @@ func (g *Generator) GenerateWithVisualContext(ctx context.Context, params Gen4Pa
 	}
 	
 	// Wait for initial period (15 seconds) - Gen-4 can take longer
+	// Use a separate context to ensure we return after 15 seconds
+	// regardless of the original MCP timeout
 	ctx15s, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	
-	result, err := g.client.WaitForCompletion(ctx15s, prediction.ID, 15*time.Second)
+	// Start a goroutine to wait for completion
+	type waitResult struct {
+		prediction *types.ReplicatePredictionResponse
+		err        error
+	}
+	resultChan := make(chan waitResult, 1)
+	
+	go func() {
+		pred, err := g.client.WaitForCompletion(ctx15s, prediction.ID, 15*time.Second)
+		resultChan <- waitResult{prediction: pred, err: err}
+	}()
+	
+	// Wait for either result or timeout
+	var result *types.ReplicatePredictionResponse
+	
+	select {
+	case res := <-resultChan:
+		result = res.prediction
+		err = res.err
+	case <-time.After(15 * time.Second):
+		// Timeout - return processing status
+		result = nil
+		err = fmt.Errorf("operation timed out after 15s")
+	}
 	
 	// Check if it's still processing
 	if err != nil && strings.Contains(err.Error(), "timed out") {

@@ -9,13 +9,13 @@ import (
 
 // Enhancer handles image enhancement operations
 type Enhancer struct {
-	client  *client.ReplicateClient
+	client  client.Client
 	storage *storage.Storage
 	debug   bool
 }
 
 // NewEnhancer creates a new Enhancer instance
-func NewEnhancer(client *client.ReplicateClient, storage *storage.Storage, debug bool) *Enhancer {
+func NewEnhancer(client client.Client, storage *storage.Storage, debug bool) *Enhancer {
 	return &Enhancer{
 		client:  client,
 		storage: storage,

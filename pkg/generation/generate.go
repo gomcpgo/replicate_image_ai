@@ -10,23 +10,36 @@ import (
 	"time"
 
 	"github.com/gomcpgo/replicate_image_ai/pkg/client"
+	"github.com/gomcpgo/replicate_image_ai/pkg/config"
 	"github.com/gomcpgo/replicate_image_ai/pkg/storage"
 	"github.com/gomcpgo/replicate_image_ai/pkg/types"
 )
 
 // Generator handles image generation operations
 type Generator struct {
-	client  *client.ReplicateClient
-	storage *storage.Storage
-	debug   bool
+	client   client.Client
+	storage  *storage.Storage
+	timeouts config.TimeoutConfig
+	debug    bool
 }
 
 // NewGenerator creates a new Generator instance
-func NewGenerator(client *client.ReplicateClient, storage *storage.Storage, debug bool) *Generator {
+func NewGenerator(client client.Client, storage *storage.Storage, debug bool) *Generator {
 	return &Generator{
-		client:  client,
-		storage: storage,
-		debug:   debug,
+		client:   client,
+		storage:  storage,
+		timeouts: config.LoadTimeouts(),
+		debug:    debug,
+	}
+}
+
+// NewGeneratorWithTimeouts creates a new Generator with custom timeouts (for testing)
+func NewGeneratorWithTimeouts(client client.Client, storage *storage.Storage, timeouts config.TimeoutConfig, debug bool) *Generator {
+	return &Generator{
+		client:   client,
+		storage:  storage,
+		timeouts: timeouts,
+		debug:    debug,
 	}
 }
 
@@ -65,11 +78,37 @@ func (g *Generator) GenerateImage(ctx context.Context, params GenerateParams) (*
 		return nil, fmt.Errorf("failed to create prediction: %w", err)
 	}
 	
-	// Wait for initial period (15 seconds)
-	ctx15s, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// Wait for initial period based on configuration
+	// Use a separate context to ensure we return after the configured time
+	// regardless of the original MCP timeout
+	initialWait := g.timeouts.InitialWait
+	ctxWait, cancel := context.WithTimeout(context.Background(), initialWait)
 	defer cancel()
 	
-	result, err := g.client.WaitForCompletion(ctx15s, prediction.ID, 15*time.Second)
+	// Start a goroutine to wait for completion
+	type waitResult struct {
+		prediction *types.ReplicatePredictionResponse
+		err        error
+	}
+	resultChan := make(chan waitResult, 1)
+	
+	go func() {
+		pred, err := g.client.WaitForCompletion(ctxWait, prediction.ID, initialWait)
+		resultChan <- waitResult{prediction: pred, err: err}
+	}()
+	
+	// Wait for either result or timeout
+	var result *types.ReplicatePredictionResponse
+	
+	select {
+	case res := <-resultChan:
+		result = res.prediction
+		err = res.err
+	case <-time.After(initialWait):
+		// Timeout - return processing status
+		result = nil
+		err = fmt.Errorf("operation timed out after %v", initialWait)
+	}
 	
 	// Check if it's still processing
 	if err != nil && strings.Contains(err.Error(), "timed out") {

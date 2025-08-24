@@ -16,13 +16,13 @@ import (
 
 // Editor handles image editing operations
 type Editor struct {
-	client  *client.ReplicateClient
+	client  client.Client
 	storage *storage.Storage
 	debug   bool
 }
 
 // NewEditor creates a new Editor instance
-func NewEditor(client *client.ReplicateClient, storage *storage.Storage, debug bool) *Editor {
+func NewEditor(client client.Client, storage *storage.Storage, debug bool) *Editor {
 	return &Editor{
 		client:  client,
 		storage: storage,

@@ -15,8 +15,21 @@ case "$1" in
         ;;
     
     "test")
-        echo "Running unit tests..."
-        go test ./pkg/...
+        if [ "$2" = "async" ]; then
+            echo "Running async tests with short timeouts..."
+            export REPLICATE_INITIAL_WAIT=1
+            export REPLICATE_CONTINUE_WAIT=2
+            go test -v ./pkg/generation -run TestGenerateImage
+        elif [ "$2" = "all" ]; then
+            echo "Running all unit tests..."
+            go test -v ./pkg/...
+        elif [ "$2" = "quick" ]; then
+            echo "Running quick unit tests (no network)..."
+            go test -short ./pkg/...
+        else
+            echo "Running unit tests..."
+            go test ./pkg/...
+        fi
         ;;
     
     "integration-test")
@@ -217,7 +230,7 @@ case "$1" in
         echo ""
         echo "Commands:"
         echo "  build                       - Build the server binary"
-        echo "  test                        - Run unit tests"
+        echo "  test [async|all|quick]      - Run unit tests (async: test async flow, all: verbose, quick: skip slow tests)"
         echo "  integration-test            - Run integration tests"
         echo "  generate <model>            - Generate image with specific model"
         echo "  gen4 <images> <tags>        - Generate with RunwayML Gen-4 using reference images"

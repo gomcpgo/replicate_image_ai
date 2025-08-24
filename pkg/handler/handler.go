@@ -18,7 +18,7 @@ type ReplicateImageHandler struct {
 	enhancer   *enhancement.Enhancer
 	editor     *editing.Editor
 	storage    *storage.Storage
-	client     *client.ReplicateClient
+	client     client.Client
 	pendingOps *PendingOperationsManager
 	debug      bool
 }
