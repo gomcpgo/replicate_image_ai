@@ -12,7 +12,7 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 	tools := []protocol.Tool{
 		{
 			Name:        "generate_image",
-			Description: `Generate images from text prompts using various AI models including FLUX, Stable Diffusion XL, Google Imagen-4, and more. Each model has unique strengths - FLUX for speed and quality, SDXL for fine control, Imagen-4 for photorealism, Ideogram for text rendering, and Recraft for design work.`,
+			Description: `[CREATE NEW] Generate completely new images from text prompts WITHOUT reference images. Use when: Starting fresh, creating first concepts, standalone images. NOT for: Creating variations, maintaining consistency with existing images. Examples: "a red cube", "sunset over mountains", "futuristic city". Models: FLUX (speed/quality), SDXL (control), Imagen-4 (photorealism), Ideogram (text), Recraft (design).`,
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -88,20 +88,20 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 		},
 		{
 			Name:        "generate_with_visual_context",
-			Description: `Generate images using RunwayML Gen-4 with visual reference images for maintaining consistent visual elements across generated images. This tool excels at preserving character identity, object appearance, and style consistency. Use @tags in your prompt to reference specific images (e.g., "@person in a coffee shop" where "person" is the tag for a reference image of a specific person).`,
+			Description: `[CREATE VARIATIONS] Generate variations, iterations, or consistent series from existing images using RunwayML Gen-4. Use when: Need multiple views of same subject, maintaining character/object identity, consistent style across images. NOT for: Simple edits, changing attributes of existing image. Examples: Character in different poses/scenes, product from multiple angles, consistent art style series. Requires 1-3 reference images with @tags in prompt (e.g., "@person at beach", "@product on shelf").`,
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"prompt": {
 						"type": "string",
-						"description": "Generation prompt with @tag references. Use @tag to reference specific images (e.g., '@character in @location with @object')"
+						"description": "Transformation prompt with @tag references. Describe the new scene/pose/context using @tags to maintain visual identity (e.g., '@character sitting', '@product on table')"
 					},
 					"reference_images": {
 						"type": "array",
 						"items": {
 							"type": "string"
 						},
-						"description": "Array of 1-3 local image file paths to use as visual references",
+						"description": "Source images (1-3) whose visual identity, appearance, or style you want to maintain in the new generation",
 						"minItems": 1,
 						"maxItems": 3
 					},
@@ -110,7 +110,7 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 						"items": {
 							"type": "string"
 						},
-						"description": "Tags for each reference image (3-15 alphanumeric characters). These tags are used with @ in the prompt to reference specific images."
+						"description": "Short labels for each image (3-15 chars), used with @ in prompt to specify where/how to use each reference (must match number of images)"
 					},
 					"aspect_ratio": {
 						"type": "string",
@@ -138,17 +138,17 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 		},
 		{
 			Name:        "edit_image",
-			Description: `Edit images using text instructions with FLUX Kontext models. Transform existing images through natural language commands like "Make it a winter scene", "Change the car to red", or "Convert to cartoon style". Three model variants available: pro (balanced speed/quality), max (highest quality), and dev (experimental features).`,
+			Description: `[MODIFY EXISTING] Transform images while preserving original composition using FLUX Kontext. Use when: Changing style/colors/weather/time, adding/removing elements, style transfer. NOT for: Creating variations, multiple views, or new compositions. Examples: "Make it winter", "Change to cartoon style", "Add rain", "Make it nighttime". Three models: pro (balanced), max (quality), dev (experimental).`,
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"file_path": {
 						"type": "string",
-						"description": "Path to the image file to edit"
+						"description": "Path to the original image you want to modify (composition will be preserved)"
 					},
 					"prompt": {
 						"type": "string",
-						"description": "Text instruction describing how to edit the image (e.g., 'Make it a sunset scene', 'Change hair color to blonde', 'Add snow')"
+						"description": "Transformation instruction describing the change, not the final result (e.g., 'Make it vintage', 'Change season to autumn', 'Convert to oil painting')"
 					},
 					"model": {
 						"type": "string",
@@ -182,7 +182,7 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 		},
 		{
 			Name:        "remove_background",
-			Description: "Remove or replace the background of an image using AI models. Produces a transparent PNG or can replace with a new background.",
+			Description: "[EXTRACT SUBJECT] Remove or replace image backgrounds using AI. Use when: Isolating subjects, creating transparent PNGs, changing backgrounds. Models: remove-bg (fast), rembg (robust), dis (detailed).",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -206,7 +206,7 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 		},
 		{
 			Name:        "upscale_image",
-			Description: "Upscale images to higher resolution using AI super-resolution models. Can enhance details and optionally improve faces.",
+			Description: "[ENHANCE RESOLUTION] Increase image resolution and quality using AI. Use when: Making images larger, improving details, preparing for print. Scales: 2x, 4x, 8x. Models: realesrgan (general), esrgan (detailed), swinir (flexible).",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -241,7 +241,7 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 		},
 		{
 			Name:        "enhance_face",
-			Description: "Enhance and restore faces in images using specialized AI models. Improves facial details, removes artifacts, and can restore old or damaged portraits.",
+			Description: "[IMPROVE FACES] Enhance facial details and quality using specialized AI. Use when: Fixing blurry faces, restoring portraits, improving selfies. Models: gfpgan (balanced), codeformer (versatile), restoreformer (natural).",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -282,7 +282,7 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 		},
 		{
 			Name:        "restore_photo",
-			Description: "Restore old, damaged, or low-quality photos using AI. Can remove scratches, enhance details, fix fading, and optionally colorize black and white images.",
+			Description: "[RESTORE QUALITY] Repair old or damaged photos using AI. Use when: Fixing old photos, removing scratches, restoring faded images, colorizing B&W. Models: bopbtl (old photos), gfpgan (faces), codeformer (general).",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
