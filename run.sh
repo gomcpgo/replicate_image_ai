@@ -10,7 +10,7 @@ fi
 case "$1" in
     "build")
         echo "Building Replicate Image AI MCP server..."
-        go build -o bin/replicate_image_ai cmd/main.go cmd/enhancements.go
+        go build -o bin/replicate_image_ai ./cmd
         echo "Build complete: bin/replicate_image_ai"
         ;;
     
@@ -42,14 +42,14 @@ case "$1" in
         model="$2"
         prompt="${3:-}"
         if [ -n "$prompt" ]; then
-            go run cmd/main.go cmd/enhancements.go -g "$model" -p "$prompt"
+            go run ./cmd -g "$model" -p "$prompt"
         else
-            go run cmd/main.go cmd/enhancements.go -g "$model"
+            go run ./cmd -g "$model"
         fi
         ;;
     
     "list-models")
-        go run cmd/main.go cmd/enhancements.go -list
+        go run ./cmd -list
         ;;
     
     "test-all")
@@ -57,7 +57,7 @@ case "$1" in
             echo "Error: REPLICATE_API_TOKEN environment variable is required"
             exit 1
         fi
-        go run cmd/main.go cmd/enhancements.go -test
+        go run ./cmd -test
         ;;
     
     "test-id")
@@ -71,7 +71,7 @@ case "$1" in
             echo "Error: REPLICATE_API_TOKEN environment variable is required"
             exit 1
         fi
-        go run cmd/main.go cmd/enhancements.go -test-id "$2"
+        go run ./cmd -test-id "$2"
         ;;
     
     "gen4")
@@ -103,7 +103,7 @@ case "$1" in
         echo "Aspect Ratio: $aspect"
         echo "Resolution: $resolution"
         
-        go run cmd/main.go cmd/enhancements.go -gen4 -ref-images "$ref_images" -ref-tags "$ref_tags" -aspect "$aspect" -resolution "$resolution" -p "$prompt"
+        go run ./cmd -gen4 -ref-images "$ref_images" -ref-tags "$ref_tags" -aspect "$aspect" -resolution "$resolution" -p "$prompt"
         ;;
     
     "imagen4")
@@ -121,7 +121,7 @@ case "$1" in
         echo "Aspect Ratio: $aspect"
         echo "Safety Filter: $safety"
         
-        go run cmd/main.go cmd/enhancements.go -imagen4 -aspect "$aspect" -safety "$safety" -p "$prompt"
+        go run ./cmd -imagen4 -aspect "$aspect" -safety "$safety" -p "$prompt"
         ;;
     
     "edit")
@@ -149,7 +149,7 @@ case "$1" in
         prompt="${4:-Make it a vintage photograph with sepia tones}"
         output="${5:-}"
         
-        cmd="go run cmd/main.go cmd/enhancements.go -edit $model -input \"$image\" -eprompt \"$prompt\""
+        cmd="go run ./cmd -edit $model -input \"$image\" -eprompt \"$prompt\""
         if [ -n "$output" ]; then
             cmd="$cmd -output \"$output\""
         fi
@@ -184,7 +184,7 @@ case "$1" in
         output="${5:-}"
         prompt="${6:-}"
         
-        cmd="go run cmd/main.go cmd/enhancements.go -enhance $tool -input $image"
+        cmd="go run ./cmd -enhance $tool -input $image"
         if [ -n "$model" ]; then
             cmd="$cmd -model $model"
         fi
@@ -200,7 +200,7 @@ case "$1" in
     
     "run")
         echo "Running Replicate Image AI MCP server..."
-        go run cmd/main.go cmd/enhancements.go
+        go run ./cmd
         ;;
     
     "clean")
