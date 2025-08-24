@@ -65,39 +65,31 @@ func (g *Generator) GenerateImage(ctx context.Context, params GenerateParams) (*
 		return nil, fmt.Errorf("failed to create prediction: %w", err)
 	}
 	
-	// Poll for completion
-	const maxAttempts = 60
-	const pollInterval = 2 * time.Second
+	// Wait for initial period (15 seconds)
+	ctx15s, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	
-	var result *types.ReplicatePredictionResponse
-	for i := 0; i < maxAttempts; i++ {
-		result, err = g.client.GetPrediction(ctx, prediction.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get prediction status: %w", err)
-		}
-		
-		if result.Status == "succeeded" {
-			break
-		}
-		
-		if result.Status == "failed" || result.Status == "canceled" {
-			return nil, GenerationError{
-				Code:    "generation_failed",
-				Message: fmt.Sprintf("Generation %s: %v", result.Status, result.Error),
-				Details: map[string]interface{}{
-					"prediction_id": prediction.ID,
-					"status":        result.Status,
-				},
-			}
-		}
-		
-		time.Sleep(pollInterval)
+	result, err := g.client.WaitForCompletion(ctx15s, prediction.ID, 15*time.Second)
+	
+	// Check if it's still processing
+	if err != nil && strings.Contains(err.Error(), "timed out") {
+		// Return processing status
+		return &ImageResult{
+			ID:           id,
+			Status:       "processing",
+			PredictionID: prediction.ID,
+			StorageID:    id,
+			Model:        modelID,
+			ModelName:    extractModelName(modelID),
+			Prompt:       params.Prompt,
+			Parameters:   input,
+		}, nil
 	}
 	
-	if result == nil || result.Status != "succeeded" {
+	if err != nil {
 		return nil, GenerationError{
-			Code:    "timeout",
-			Message: "Generation timed out",
+			Code:    "generation_failed",
+			Message: fmt.Sprintf("Generation failed: %v", err),
 			Details: map[string]interface{}{
 				"prediction_id": prediction.ID,
 			},
@@ -171,6 +163,8 @@ func (g *Generator) GenerateImage(ctx context.Context, params GenerateParams) (*
 		Parameters:   input,
 		Metrics:      metrics,
 		PredictionID: prediction.ID,
+		Status:       "completed",
+		StorageID:    id,
 	}, nil
 }
 
@@ -252,6 +246,20 @@ func (g *Generator) buildInputParams(params GenerateParams, modelID string) map[
 	}
 	
 	return input
+}
+
+// extractModelName extracts a friendly model name from the model ID
+func extractModelName(modelID string) string {
+	modelInfo := GetModelInfo(modelID)
+	if modelInfo.Name != "" {
+		return modelInfo.Name
+	}
+	// Fallback to last part of ID
+	parts := strings.Split(modelID, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return modelID
 }
 
 // inferAspectRatio infers aspect ratio from width and height

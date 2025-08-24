@@ -32,15 +32,17 @@ type Gen4Params struct {
 
 // ImageResult contains the result of an image generation
 type ImageResult struct {
-	ID          string
-	FilePath    string
-	URL         string
-	Model       string
-	ModelName   string
-	Prompt      string
-	Parameters  map[string]interface{}
-	Metrics     GenerationMetrics
+	ID           string
+	FilePath     string
+	URL          string
+	Model        string
+	ModelName    string
+	Prompt       string
+	Parameters   map[string]interface{}
+	Metrics      GenerationMetrics
 	PredictionID string
+	Status       string // "completed" or "processing"
+	StorageID    string // For async operations
 }
 
 // GenerationMetrics contains performance metrics

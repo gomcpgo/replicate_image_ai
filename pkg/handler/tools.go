@@ -319,6 +319,27 @@ func (h *ReplicateImageHandler) ListTools(ctx context.Context) (*protocol.ListTo
 				"required": ["file_path"]
 			}`),
 		},
+		{
+			Name:        "continue_operation",
+			Description: "[CONTINUE WAITING] Check status of a long-running operation and continue waiting if needed. Use when: Previous operation returned 'processing' status with a prediction_id. Automatically handles polling and result retrieval.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"prediction_id": {
+						"type": "string",
+						"description": "The prediction ID from the previous operation that's still processing"
+					},
+					"wait_time": {
+						"type": "integer",
+						"description": "How many seconds to wait for completion (max 30)",
+						"default": 30,
+						"minimum": 5,
+						"maximum": 30
+					}
+				},
+				"required": ["prediction_id"]
+			}`),
+		},
 	}
 	
 	return &protocol.ListToolsResponse{

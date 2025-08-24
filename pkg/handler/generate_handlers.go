@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"time"
 
 	"github.com/gomcpgo/mcp/pkg/protocol"
 	"github.com/gomcpgo/replicate_image_ai/pkg/generation"
@@ -79,6 +80,28 @@ func (h *ReplicateImageHandler) handleGenerateImage(ctx context.Context, args ma
 			return h.errorResponse("generate_image", genErr.Code, genErr.Message, genErr.Details)
 		}
 		return h.errorResponse("generate_image", "generation_error", err.Error(), nil)
+	}
+	
+	// Check if operation is still processing
+	if result.Status == "processing" {
+		// Store in pending operations
+		h.pendingOps.Add(result.PredictionID, &PendingOperation{
+			PredictionID: result.PredictionID,
+			StorageID:    result.StorageID,
+			Operation:    "generate_image",
+			StartTime:    time.Now(),
+			Model:        result.Model,
+			Params:       result.Parameters,
+		})
+		
+		// Return processing response
+		response := responses.BuildProcessingResponse(
+			"generate_image",
+			result.PredictionID,
+			result.StorageID,
+			30, // Initial estimate
+		)
+		return h.successResponse(response)
 	}
 	
 	// Build success response
@@ -159,6 +182,28 @@ func (h *ReplicateImageHandler) handleGenerateWithVisualContext(ctx context.Cont
 			return h.errorResponse("generate_with_visual_context", genErr.Code, genErr.Message, genErr.Details)
 		}
 		return h.errorResponse("generate_with_visual_context", "generation_error", err.Error(), nil)
+	}
+	
+	// Check if operation is still processing
+	if result.Status == "processing" {
+		// Store in pending operations
+		h.pendingOps.Add(result.PredictionID, &PendingOperation{
+			PredictionID: result.PredictionID,
+			StorageID:    result.StorageID,
+			Operation:    "generate_with_visual_context",
+			StartTime:    time.Now(),
+			Model:        result.Model,
+			Params:       result.Parameters,
+		})
+		
+		// Return processing response
+		response := responses.BuildProcessingResponse(
+			"generate_with_visual_context",
+			result.PredictionID,
+			result.StorageID,
+			45, // Initial estimate for Gen-4
+		)
+		return h.successResponse(response)
 	}
 	
 	// Build success response

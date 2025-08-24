@@ -14,11 +14,13 @@ import (
 
 // ReplicateImageHandler handles MCP requests for image operations
 type ReplicateImageHandler struct {
-	generator *generation.Generator
-	enhancer  *enhancement.Enhancer
-	editor    *editing.Editor
-	storage   *storage.Storage
-	debug     bool
+	generator  *generation.Generator
+	enhancer   *enhancement.Enhancer
+	editor     *editing.Editor
+	storage    *storage.Storage
+	client     *client.ReplicateClient
+	pendingOps *PendingOperationsManager
+	debug      bool
 }
 
 // NewReplicateImageHandler creates a new handler instance
@@ -34,12 +36,17 @@ func NewReplicateImageHandler(apiKey string, rootFolder string, debug bool) (*Re
 	enh := enhancement.NewEnhancer(replicateClient, store, debug)
 	edit := editing.NewEditor(replicateClient, store, debug)
 	
+	// Initialize pending operations manager
+	pendingOps := NewPendingOperationsManager()
+	
 	return &ReplicateImageHandler{
-		generator: gen,
-		enhancer:  enh,
-		editor:    edit,
-		storage:   store,
-		debug:     debug,
+		generator:  gen,
+		enhancer:   enh,
+		editor:     edit,
+		storage:    store,
+		client:     replicateClient,
+		pendingOps: pendingOps,
+		debug:      debug,
 	}, nil
 }
 
@@ -65,6 +72,10 @@ func (h *ReplicateImageHandler) CallTool(ctx context.Context, req *protocol.Call
 	// Editing tools
 	case "edit_image":
 		return h.handleEditImage(ctx, req.Arguments)
+	
+	// Async operation management
+	case "continue_operation":
+		return h.handleContinueOperation(ctx, req.Arguments)
 		
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", req.Name)
