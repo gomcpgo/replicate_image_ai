@@ -198,6 +198,7 @@ func (h *ReplicateImageHandler) handleGenerateWithVisualContext(ctx context.Cont
 	if result.Status == "processing" {
 		log.Printf("DEBUG: Handling processing status")
 		// Store in pending operations
+		log.Printf("DEBUG: Storing pending operation: prediction_id=%s, storage_id=%s", result.PredictionID, result.StorageID)
 		h.pendingOps.Add(result.PredictionID, &PendingOperation{
 			PredictionID: result.PredictionID,
 			StorageID:    result.StorageID,

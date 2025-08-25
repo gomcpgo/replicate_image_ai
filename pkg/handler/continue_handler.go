@@ -32,15 +32,21 @@ func (h *ReplicateImageHandler) handleContinueOperation(ctx context.Context, arg
 	}
 	
 	// Get pending operation info
+	log.Printf("DEBUG: Looking for pending operation with prediction_id=%s", predictionID)
 	pendingOp, exists := h.pendingOps.Get(predictionID)
 	if !exists {
+		log.Printf("DEBUG: Pending operation NOT FOUND for prediction_id=%s", predictionID)
 		// If not in pending ops, still try to get the prediction
 		// (in case of server restart or manual continuation)
+		// For generate_with_visual_context, we should still download the image
 		pendingOp = &PendingOperation{
 			PredictionID: predictionID,
-			Operation:    "unknown",
+			Operation:    "generate_with_visual_context", // Assume this for now
 			StartTime:    time.Now(),
+			StorageID:    fmt.Sprintf("cont_%s", predictionID[:8]), // Generate a storage ID
 		}
+	} else {
+		log.Printf("DEBUG: Found pending operation: storage_id=%s, operation=%s", pendingOp.StorageID, pendingOp.Operation)
 	}
 	
 	if h.debug {
@@ -100,7 +106,9 @@ func (h *ReplicateImageHandler) handleContinueOperation(ctx context.Context, arg
 	
 	// Download and save the result
 	filename := fmt.Sprintf("continued_%s", predictionID)
+	log.Printf("DEBUG: About to save image - StorageID: %s, URL: %s", pendingOp.StorageID, outputURL)
 	if pendingOp.StorageID != "" {
+		log.Printf("DEBUG: Saving image with storage ID %s", pendingOp.StorageID)
 		imagePath, err := h.storage.SaveImage(pendingOp.StorageID, outputURL, filename)
 		if err != nil {
 			return nil, fmt.Errorf("failed to save image: %w", err)
@@ -153,6 +161,7 @@ func (h *ReplicateImageHandler) handleContinueOperation(ctx context.Context, arg
 	}
 	
 	// No storage ID - return simple success
+	log.Printf("DEBUG: No storage ID found, returning URL only")
 	response := responses.BuildSimpleSuccessResponse(
 		"continue_operation",
 		fmt.Sprintf("Operation completed. Output: %s", outputURL),
